@@ -327,7 +327,6 @@ class GeminiRoutePlanner:
                     "observations": {"type": "string"},
                 },
                 "required": ["route_id", "reason", "observations"],
-                "additionalProperties": False,
             }
             with genai.Client(api_key=self.api_key) as client:
                 response = client.models.generate_content(
@@ -341,10 +340,28 @@ class GeminiRoutePlanner:
                         response_schema=schema,
                         temperature=0.1,
                         thinking_config=types.ThinkingConfig(thinking_level="high"),
+                        # This request defines no callable tools. Explicitly
+                        # disable the SDK's default AFC loop so it performs one
+                        # generateContent request without the misleading AFC
+                        # warning.
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                            disable=True
+                        ),
                     ),
                 )
             payload = json.loads(response.text)
         except Exception as error:
+            code = getattr(error, "code", None)
+            status = getattr(error, "status", None)
+            message = getattr(error, "message", None)
+            if code is not None:
+                safe_message = " ".join(str(message or "request rejected").split())[:300]
+                if self.api_key:
+                    safe_message = safe_message.replace(self.api_key, "[REDACTED]")
+                raise PlannerError(
+                    f"Gemini ER 2 planning failed: HTTP {code} {status or 'CLIENT_ERROR'}: "
+                    f"{safe_message}"
+                ) from error
             raise PlannerError(f"Gemini ER 2 planning failed: {type(error).__name__}") from error
 
         route_id = payload.get("route_id")

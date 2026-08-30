@@ -6,7 +6,9 @@ the control layer.
 
 The four launchers are:
 
-1. `run_controller.sh` — existing calibrated PlayStation controller.
+1. `run_controller.sh` — calibrated PlayStation controller. It remains
+   call-disarmed normally; `make sim-beacon` deliberately arms its geometric
+   proximity/dwell gate and one-shot BeaconCall.
 2. `run_rescue.sh` — Gemini selects a bounded route, the G1 approaches and
    stops at the casualty, and the existing optional BeaconCall gate can run.
 3. `run_carry.sh` — the same approach followed by a **simulation-only visual

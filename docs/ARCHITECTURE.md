@@ -1,5 +1,53 @@
 # Architecture
 
+## Sensor-to-action mission architecture
+
+```text
+                              G1 SENSORS
+                         /        |        \
+                     Camera      Audio      IMU
+                        |          |         |
+                 front-camera   four-mic   body orientation
+                    frame        array     + terrain state
+                        |          |         |
+                 camera capture  spatial_audio.py
+                         \         |        /
+                              WORLD MODEL
+             frame + acoustic bearing/confidence + terrain/weather
+                                   |
+                    AI MISSION AGENT (Gemini Robotics-ER 2)
+                                   |
+          "I hear a distress call uphill. Locate and reach the person
+                         using a safe route."
+                                   |
+                                 GR00T
+                    task-conditioned latent actions
+                                   |
+                                 SONIC
+                       50 Hz whole-body decoder
+                                   |
+                                   G1
+```
+
+This is a layered authority model, not one end-to-end cloud control loop:
+
+1. Camera, simulated microphone-array output, body pose, and terrain/environment
+   samples form a compact world-model packet.
+2. Gemini Robotics-ER 2 runs at the mission layer. It receives one bounded
+   camera frame, acoustic bearing/confidence, and scored route candidates. It
+   returns one route ID plus rationale and observations.
+3. The local planner rejects unknown or unsafe route IDs. Gemini cannot create
+   arbitrary waypoints, write torques, satisfy proximity, or arm a call.
+4. GR00T/SONIC is the promoted learned-control lane: GR00T predicts the
+   task-conditioned SONIC representation and SONIC decodes it at 50 Hz.
+5. Until a trained checkpoint passes the promotion gate, the runnable paths use
+   the commissioned local policy and deterministic route executor instead.
+
+The quoted mission sentence is an illustrative task instruction, not a speech
+transcript. The current acoustic model estimates direction and confidence from
+time differences of arrival; it does not recognize words. Its coarse range is
+telemetry only.
+
 ## Control and network planes
 
 ```text

@@ -231,6 +231,39 @@ def _apply_bridge_failure(env: SummitSentinelEnv, failure: str | None) -> bool:
     return True
 
 
+def _console_model_text(value: str, *, limit: int = 500) -> str:
+    """Collapse untrusted model text to one printable terminal-safe line."""
+
+    printable = "".join(character if character.isprintable() else " " for character in value)
+    return " ".join(printable.replace("\x1b", " ").split())[:limit]
+
+
+def _announce_autonomy_plan(mode: str, route, planner, *, camera_bytes: int) -> None:
+    """Show the validated high-level decision without exposing hidden reasoning."""
+
+    print(
+        f"AUTONOMY PLAN provider={planner.provider} model={planner.model} mode={mode}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        f"  route={route.route_id} aggregate_risk={route.aggregate_risk:.4f} "
+        f"front_camera_bytes={camera_bytes}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        f"  reason={_console_model_text(planner.last_reason)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        f"  observations={_console_model_text(planner.last_observations)}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def _run(args: argparse.Namespace) -> dict[str, object]:
     config = load_config()
     calibration = (
@@ -339,6 +372,12 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             image_jpeg=planning_frame,
             acoustic_observation=acoustic_observation,
         )
+        _announce_autonomy_plan(
+            args.autonomy,
+            route,
+            planner,
+            camera_bytes=len(planning_frame) if planning_frame is not None else 0,
+        )
         autonomy = AutonomousMujocoController(
             env=env,
             mode=args.autonomy,
@@ -350,6 +389,9 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             planning_frame_bytes=len(planning_frame) if planning_frame is not None else 0,
             spatial_audio=audio_settings,
         )
+    passive_monitor_required = (
+        args.joystick and (audio_settings.enabled or args.arm_live_call)
+    ) or (args.autonomy == "scan" and audio_settings.enabled)
     passive_audio = (
         MujocoAudioMonitor(
             person_xy=env.rescue_target_xy,
@@ -358,8 +400,9 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             simulation_id=args.simulation_id or "",
             audit_log=args.audit_log,
             mode="controller" if args.joystick else "gemini-scan",
+            arm_live_call=args.arm_live_call and args.joystick,
         )
-        if audio_settings.enabled and (args.joystick or args.autonomy == "scan")
+        if passive_monitor_required
         else None
     )
 
@@ -404,7 +447,10 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         if autonomy is not None and not env.emergency_stop_latched:
             effective_command = autonomy.update(env)
         if passive_audio is not None and not env.emergency_stop_latched:
-            passive_audio.update(env.data.joint("floating_base_joint").qpos.copy())
+            passive_audio.update(
+                env.data.joint("floating_base_joint").qpos.copy(),
+                image_supplier=(env.front_camera_jpeg if passive_audio.live_call_armed else None),
+            )
         result = env.step(effective_command)
         falls += int(result.fell)
         if result.reset and bridge_worker is not None and command_applier is not None:
@@ -493,12 +539,18 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         "telemetry_frames": bridge_worker.records_written if bridge_worker is not None else 0,
         "bridge_background_failure": bridge_worker.failure if bridge_worker is not None else None,
         "bridge_db": str(bridge.path) if bridge is not None else None,
-        "rescue_enabled": rescue is not None or args.autonomy in {"rescue", "carry"},
+        "rescue_enabled": (
+            rescue is not None
+            or args.autonomy in {"rescue", "carry"}
+            or (args.joystick and passive_audio is not None)
+        ),
         "rescue_reached": (
             rescue.latch.latched
             if rescue is not None
             else autonomy.rescue.latch.latched
             if autonomy is not None and autonomy.rescue is not None
+            else passive_audio.latch.latched
+            if args.joystick and passive_audio is not None
             else False
         ),
         "rescue_distance_m": (
@@ -506,6 +558,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             if rescue is not None
             else autonomy.rescue.last_command.surface_distance_m
             if autonomy is not None and autonomy.rescue is not None
+            else passive_audio.last_surface_distance_m
+            if args.joystick and passive_audio is not None
             else None
         ),
         "live_call_armed": (
@@ -513,6 +567,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             if rescue is not None
             else autonomy.live_call_armed
             if autonomy is not None
+            else passive_audio.live_call_armed
+            if passive_audio is not None
             else False
         ),
         "call_submitted": (
@@ -520,6 +576,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             if rescue is not None
             else autonomy.call_submitted
             if autonomy is not None
+            else passive_audio.call_submitted
+            if passive_audio is not None
             else False
         ),
         "front_camera_status": (
@@ -529,6 +587,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             if autonomy is not None and autonomy.rescue is not None
             else "planning-only"
             if autonomy is not None
+            else passive_audio.front_camera_status
+            if passive_audio is not None
             else "disabled"
         ),
         "front_camera_bytes": (
@@ -536,6 +596,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             if rescue is not None
             else autonomy.rescue.front_camera_bytes
             if autonomy is not None and autonomy.rescue is not None
+            else passive_audio.front_camera_bytes
+            if passive_audio is not None
             else 0
         ),
         "simulation_id": (
@@ -585,14 +647,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--seconds must be non-negative")
     if not 10.0 <= args.telemetry_hz <= 20.0:
         parser.error("--telemetry-hz must be between 10 and 20")
-    if args.rescue and args.autonomy is not None:
-        parser.error("--rescue and --autonomy are mutually exclusive")
+    if args.rescue and (args.autonomy is not None or args.joystick):
+        parser.error("--rescue is mutually exclusive with --autonomy and --joystick")
     if args.autonomy is not None and args.joystick:
         parser.error("--autonomy and --joystick are mutually exclusive")
     if args.offline_plan and args.autonomy is None:
         parser.error("--offline-plan requires --autonomy")
-    if args.arm_live_call and not (args.rescue or args.autonomy in {"rescue", "carry"}):
-        parser.error("--arm-live-call requires --rescue or rescue/carry autonomy")
+    if args.arm_live_call and not (
+        args.joystick or args.rescue or args.autonomy in {"rescue", "carry"}
+    ):
+        parser.error("--arm-live-call requires controller, rescue, or carry mode")
     audio_mode = args.rescue or args.autonomy is not None or args.joystick
     if (args.spatial_audio or args.acoustic_localization) and not audio_mode:
         parser.error(
@@ -639,6 +703,11 @@ def main(argv: list[str] | None = None) -> int:
         if summary["spatial_audio_path"] is not None:
             print(f"spatial_audio={summary['spatial_audio_path']}")
             print(f"play_on_mac=afplay {shlex.quote(str(summary['spatial_audio_path']))}")
+        if summary["live_call_armed"]:
+            print(
+                f"beacon_call=armed submitted={summary['call_submitted']} "
+                f"distance={summary['rescue_distance_m']:.3f} m"
+            )
     return 0
 
 

@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from everest_g1.beacon import ARM_VALUE, BeaconSettings
+from everest_g1.models import RescueObservation
 from everest_g1.mujoco import MujocoAudioMonitor, MujocoRescueController
 from everest_g1.spatial_audio import (
     AcousticBeaconSensor,
@@ -314,3 +316,45 @@ def test_passive_monitor_writes_controller_or_scan_audio_without_motion_authorit
     records = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
     assert records[0]["motion_authority"] is False
     assert records[-1]["event"] == "spatial_audio_written"
+
+
+def test_controller_monitor_queues_one_call_without_taking_motion_authority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import everest_g1.beacon as beacon_module
+
+    monkeypatch.setenv("EVEREST_ARM_LIVE_CALL", ARM_VALUE)
+    monkeypatch.setenv("BEACON_API_URL", "https://beacon.test")
+    monkeypatch.setenv("BEACON_API_TOKEN", "test-token")
+    calls: list[RescueObservation] = []
+
+    def fake_post(_settings: BeaconSettings, observation: RescueObservation) -> dict[str, object]:
+        calls.append(observation)
+        return {"incident_id": "inc-controller", "status": "queued"}
+
+    monkeypatch.setattr(beacon_module, "post_incident", fake_post)
+    monitor = MujocoAudioMonitor(
+        person_xy=(0.65, 0.0),
+        control_dt_s=0.25,
+        settings=SpatialAudioSettings(),
+        simulation_id="controller-live-test",
+        audit_log=tmp_path / "events.jsonl",
+        mode="controller",
+        arm_live_call=True,
+    )
+    qpos = np.asarray([0.0, 0.0, 0.9, 1.0, 0.0, 0.0, 0.0])
+    jpeg = b"\xff\xd8controller-camera\xff\xd9"
+
+    assert monitor.update(qpos, image_supplier=lambda: jpeg) is None
+    assert monitor.update(qpos, image_supplier=lambda: jpeg) is None
+    monitor.close()
+
+    assert monitor.latch.latched
+    assert monitor.live_call_armed
+    assert monitor.call_submitted
+    assert monitor.front_camera_status == "captured"
+    assert monitor.front_camera_bytes == len(jpeg)
+    assert len(calls) == 1
+    assert calls[0].simulation_id == "controller-live-test"
+    assert calls[0].distance_m == pytest.approx(0.1)
+    assert calls[0].image_jpeg == jpeg

@@ -94,6 +94,8 @@ def test_gemini_selects_only_named_locally_safe_route(monkeypatch: pytest.Monkey
         def generate_content(self, **kwargs):
             assert kwargs["model"] == "gemini-robotics-er-2-preview"
             assert len(kwargs["contents"]) == 2
+            assert kwargs["config"].automatic_function_calling.disable is True
+            assert "additionalProperties" not in kwargs["config"].response_schema
             return FakeResponse()
 
     class FakeClient:
@@ -114,6 +116,48 @@ def test_gemini_selects_only_named_locally_safe_route(monkeypatch: pytest.Monkey
     assert selected.route_id == selected_id
     assert selected.hard_safe
     assert planner.provider == "gemini-er-2"
+
+
+def test_gemini_client_error_reports_safe_actionable_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from google import genai
+    from google.genai import errors
+
+    options = build_route_options("scan", EnvironmentProfile())
+
+    class RejectingModels:
+        def generate_content(self, **_kwargs):
+            raise errors.ClientError(
+                403,
+                {
+                    "error": {
+                        "code": 403,
+                        "status": "PERMISSION_DENIED",
+                        "message": "API key test-secret lacks model access",
+                    }
+                },
+            )
+
+    class RejectingClient:
+        def __init__(self, *, api_key: str):
+            assert api_key == "test-secret"
+            self.models = RejectingModels()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(genai, "Client", RejectingClient)
+    planner = GeminiRoutePlanner(api_key="test-secret")
+
+    with pytest.raises(
+        PlannerError,
+        match=r"HTTP 403 PERMISSION_DENIED: API key \[REDACTED\] lacks model access",
+    ):
+        planner.select("scan", options, image_jpeg=b"\xff\xd8frame\xff\xd9")
 
 
 def test_carry_mode_attaches_only_after_proximity_dwell(tmp_path: Path) -> None:
@@ -143,6 +187,19 @@ def test_carry_mode_attaches_only_after_proximity_dwell(tmp_path: Path) -> None:
 
         assert controller.carry_proxy_attached
         assert env.casualty_carrying
+        hands = 0.5 * (
+            env.data.site("left_hand_carry_anchor").xpos
+            + env.data.site("right_hand_carry_anchor").xpos
+        )
+        person_support = env.data.site("downed_person_carry_anchor").xpos
+        assert person_support[2] == pytest.approx(hands[2])
+        assert person_support[0] - hands[0] == pytest.approx(0.12)
+        assert person_support[1] - hands[1] == pytest.approx(0.0, abs=1e-6)
+        np.testing.assert_allclose(
+            env.data.mocap_quat[env._casualty_mocap_id],
+            [0.5, -0.5, -0.5, 0.5],
+            atol=1e-7,
+        )
         before = env.data.mocap_pos[env._casualty_mocap_id].copy()
         root[0] += 0.5
         env._update_carried_casualty_pose()
@@ -181,7 +238,11 @@ def test_autonomy_commands_remain_inside_conservative_bounds(tmp_path: Path) -> 
 def test_all_four_mac_launchers_enable_spatial_audio_by_default() -> None:
     root = Path(__file__).resolve().parents[1]
     common = (root / "autonomy" / "_common.sh").read_text()
-    assert "audio_args=(--spatial-audio --acoustic-localization)" in common
+    assert "spatial_audio_enabled=1" in common
+    assert "live_call_enabled=0" in common
+    assert 'source ".env.gemini"' in common
     for name in ("controller", "rescue", "carry", "scan"):
         launcher = (root / "autonomy" / f"run_{name}.sh").read_text()
-        assert '"${audio_args[@]}"' in launcher
+        assert "set -- --spatial-audio --acoustic-localization" in launcher
+        assert '"${audio_args[@]}"' not in launcher
+        assert '"${live_call_args[@]}"' not in launcher

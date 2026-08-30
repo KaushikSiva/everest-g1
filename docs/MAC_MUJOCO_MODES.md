@@ -49,6 +49,20 @@ Equivalent Make targets are `make mode-controller`,
 `make mode-gemini-rescue`, `make mode-gemini-carry`, and
 `make mode-gemini-scan`.
 
+For the controller plus the one-shot Beacon phone call, place
+`BEACON_API_URL` and `BEACON_API_TOKEN` in the ignored `.env`, then run:
+
+```bash
+make sim-beacon
+```
+
+During migration, this target also recognizes the existing ignored
+`../sim-g1-everest/.env` when the new repository has no `.env`. It never copies,
+prints, or commits those secrets. Joystick motion remains authoritative; the
+local geometric proximity monitor only observes distance, requires a 0.25 s
+dwell within touching distance, captures one front-camera frame, and queues at
+most one call.
+
 The carry mode is deliberately labeled a MuJoCo visual carry proxy. The current
 12-actuator G1 XML controls the legs only; its arm meshes are fixed. It can
 demonstrate approach, proximity, attachment, and locomotion state transitions,
@@ -88,8 +102,8 @@ Gemini key so they cannot silently claim Gemini was used.
 
 ## 4. Optional LiveKit/Twilio call
 
-Rescue and carry reuse the existing one-shot BeaconCall handoff. Keep it
-disarmed for normal simulation. To deliberately arm it:
+Controller, rescue, and carry reuse the existing one-shot BeaconCall handoff.
+Keep it disarmed for normal simulation. To deliberately arm autonomous rescue:
 
 ```bash
 export BEACON_API_URL=https://YOUR-BEACON-HOST

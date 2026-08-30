@@ -9,6 +9,28 @@ This is the real NVIDIA whole-body path, not a rename of the Arena commissioning
 controller. GR00T predicts a 40-step chunk of 64-dimensional SONIC latent motion
 tokens plus hand actions; SONIC decodes body motion at 50 Hz.
 
+## Higher-level Gemini Robotics-ER 2 boundary
+
+Gemini Robotics-ER 2 sits above this learned control lane. The implemented Mac
+planner gives it one front-camera frame, the initial acoustic bearing and
+confidence, slope/temperature/wind/visibility/snow/friction context, and a
+small list of locally generated hard-safe routes. Gemini selects one route ID
+and explains the selection. A local validator rejects anything outside that
+list.
+
+The future promoted handoff is therefore:
+
+```text
+sensor world model -> Gemini Robotics-ER 2 mission/route selection
+                   -> GR00T task-conditioned SONIC tokens
+                   -> SONIC 50 Hz whole-body decoding
+                   -> locally bounded G1 commands
+```
+
+Gemini is not a torque, balance, or position controller. It cannot bypass the
+proximity dwell, emergency stop, or call-arming rules. Acoustic direction can
+inform route choice; acoustic range cannot release motion or telephony.
+
 ## Version boundary
 
 - `GR00T-WholeBodyControl` is pinned in `cloud/pins.env` and targets Isaac Lab

@@ -16,6 +16,12 @@ GR00T N1.7 + GEAR-SONIC workflow for dataset collection, fine-tuning, and later
 whole-body policy evaluation. Those are distinct controllers and are never
 presented as interchangeable.
 
+In the Mac autonomous modes, Gemini Robotics-ER 2 is the higher-level mission
+reasoner. It receives one front-camera frame, an acoustic bearing/confidence,
+terrain and weather factors, and a set of locally generated route candidates.
+It may select and explain one hard-safe route; it never emits joint commands,
+controls the 50 Hz loop, or overrides local stop/call gates.
+
 > **Start here:** [Isaac Lab + GR00T + SONIC: one setup path](docs/ISAAC_LAB_GROOT_SONIC.md)
 
 The repository keeps each NVIDIA lane in a separate integration folder:
@@ -58,25 +64,50 @@ the robot simulation/control stack, not sponsor claims made by this repository.
 This repository does **not** claim a zero simulation-to-reality gap. It pins
 software, bounds commands, logs measurements, and separates control from cloud
 calls so the remaining gap can be measured. Physical G1 deployment is outside
-this release gate.
+this release gate. Bounded manual gantry commissioning lives in
+[`bruno-real-robot`](https://github.com/KaushikSiva/bruno-real-robot).
 
 ## Architecture
 
 ```text
-Bright Data (optional, async context only)
-                  |
-                  v
-Isaac/MuJoCo scene -> bounded G1 policy -> proximity dwell -> robot stops
-                                                     |
-                                                     v one-shot worker
-                                          BeaconCall API + camera JPEG
-                                                     |
-                                                     v
-                                        OpenAI observable description
-                                                     |
-                                                     v
-                                           LiveKit SIP -> Twilio
+                              G1 SENSORS
+                         /        |        \
+                     Camera      Audio      IMU
+                        |          |         |
+                 camera capture  spatial_  body pose +
+                    / vision      audio.py  terrain state
+                         \         |         /
+                              WORLD MODEL
+                                   |
+                    AI MISSION AGENT (Gemini Robotics-ER 2)
+                                   |
+          "I hear a distress call uphill. Locate and reach the person
+                         using a safe route."
+                                   |
+                                 GR00T
+                                   |
+                                 SONIC
+                                   |
+                                   G1
+
+LOCAL SAFETY (authoritative): command bounds -> proximity dwell -> stop
+                                                        |
+                                                        v after stop
+                     BeaconCall -> LiveKit agent -> Twilio-backed SIP call
 ```
+
+This diagram describes the promoted architecture. The implemented MuJoCo
+mission layer builds its world-model packet in `autonomy/planning.py` from the
+front camera, acoustic bearing, and terrain/environment samples. Gemini
+Robotics-ER 2 performs bounded route selection at mission rate. The checked-in
+GR00T/SONIC lane is the next learned-control stage: GR00T produces SONIC latent
+actions and SONIC decodes them into 50 Hz whole-body motion. Until a checkpoint
+passes the documented promotion gate, the runnable simulator continues to use
+its commissioned policy and deterministic route executor.
+
+The acoustic estimate is directional evidence, not speech transcription. Its
+coarse range is telemetry only. Measured geometric proximity remains the sole
+authority for stopping and releasing the one-shot BeaconCall worker.
 
 BeaconCall is a separate repository/service. Its server owns the destination
 phone number and LiveKit/Twilio credentials; Everest G1 receives only an API URL
@@ -101,6 +132,9 @@ The dry run must finish with `"reached": true` and
 
 For the PlayStation controller plus all three Gemini Robotics ER 2 autonomous
 modes, use the dedicated [macOS four-mode runbook](docs/MAC_MUJOCO_MODES.md).
+
+To render RESCUE, CARRY, and SCAN as one exact 45-second MP4 with chapter
+cards and on-video planning rationale, see the [demo video runbook](docs/DEMO_VIDEO.md).
 
 Run the G1, prone-person proxy, approach controller, stop, and dwell locally:
 
@@ -129,6 +163,17 @@ export EVEREST_ARM_LIVE_CALL=ARM-LIVE-CALL
 uv run mjpython -m summit_sentinel --mode viewer --seconds 60 \
   --rescue --arm-live-call
 ```
+
+The same one-shot handoff is available while driving with the calibrated
+PlayStation controller. With an ignored `.env` containing `BEACON_API_URL` and
+`BEACON_API_TOKEN`, run:
+
+```bash
+make sim-beacon
+```
+
+This target also accepts the existing sibling `../sim-g1-everest/.env` during
+migration. It does not copy or print the credentials.
 
 MuJoCo submits the same authenticated `/api/incidents/outbound-call` request as
 Isaac, plus one 640×480 JPEG from `g1_front_camera`. BeaconCall analyzes that

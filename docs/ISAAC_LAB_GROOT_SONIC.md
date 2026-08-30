@@ -17,6 +17,23 @@ The runnable Isaac rescue uses Arena's AGILE G1 WBC. GR00T plus SONIC is a
 separate learned-policy promotion lane; it is not silently substituted for the
 commissioning controller.
 
+Gemini Robotics-ER 2 is a higher-level mission reasoner used by the Mac MuJoCo
+autonomous modes. It fuses the initial camera observation, acoustic
+bearing/confidence, and terrain/environment factors to select one locally
+generated hard-safe route. It does not replace GR00T, SONIC, or the local
+controller. The intended promoted layering is:
+
+```text
+G1 camera + acoustic bearing + IMU/terrain -> world model
+  -> Gemini Robotics-ER 2 mission route
+  -> GR00T task-conditioned latent action representation
+  -> SONIC 50 Hz whole-body decoder
+  -> locally bounded G1 control
+```
+
+This runbook installs the NVIDIA execution lanes. It does not claim that a
+Gemini-selected simulation route is already a physical-robot policy.
+
 ```text
 stacks/
   isaac_lab/   runnable simulation + G1 head camera + BeaconCall

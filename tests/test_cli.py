@@ -7,6 +7,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from everest_g1.autonomy import EnvironmentProfile, GeminiRoutePlanner, build_route_options
 from summit_sentinel import cli
 from summit_sentinel.joystick import OperatorInput
 from summit_sentinel.simulation import SummitSentinelEnv
@@ -33,6 +34,28 @@ def test_viewer_camera_opens_on_wide_interactive_summit_view() -> None:
     assert -90.0 < cli.VIEWER_CAMERA_ELEVATION < 0.0
 
 
+def test_validated_autonomy_rationale_is_printed_safely_to_console(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    planner = GeminiRoutePlanner(offline=True)
+    route = planner.select(
+        "scan",
+        build_route_options("scan", EnvironmentProfile()),
+        image_jpeg=None,
+    )
+    planner.last_reason = "lowest risk\nwith stable friction\x1b[31m"
+    planner.last_observations = "camera checked\tterrain clear"
+
+    cli._announce_autonomy_plan("scan", route, planner, camera_bytes=1234)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "AUTONOMY PLAN provider=offline-deterministic" in captured.err
+    assert f"route={route.route_id}" in captured.err
+    assert "reason=lowest risk with stable friction [31m" in captured.err
+    assert "observations=camera checked terrain clear" in captured.err
+
+
 def test_macos_viewer_error_prints_exact_mjpython_command(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -50,12 +73,12 @@ def test_macos_viewer_error_prints_exact_mjpython_command(
     )
 
 
-def test_live_call_flag_requires_rescue_mode(capsys: pytest.CaptureFixture[str]) -> None:
+def test_live_call_flag_requires_call_capable_mode(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as error:
         cli.main(["--mode", "headless", "--seconds", "0", "--arm-live-call"])
 
     assert error.value.code == 2
-    assert "--arm-live-call requires --rescue" in capsys.readouterr().err
+    assert "--arm-live-call requires controller, rescue, or carry mode" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("flag", ["--spatial-audio", "--acoustic-localization"])

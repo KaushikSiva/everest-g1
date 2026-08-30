@@ -222,7 +222,7 @@ class MujocoRescueController:
 
 
 class MujocoAudioMonitor:
-    """Render passive casualty audio without taking motion authority."""
+    """Observe controller/scan proximity without taking motion authority."""
 
     def __init__(
         self,
@@ -233,85 +233,164 @@ class MujocoAudioMonitor:
         simulation_id: str = "",
         audit_log: Path = Path("runtime/everest-g1-events.jsonl"),
         mode: str,
+        arm_live_call: bool = False,
+        limits: ApproachLimits | None = None,
+        dwell_s: float = 0.25,
     ) -> None:
         if control_dt_s <= 0:
             raise ValueError("control_dt_s must be positive")
-        if not settings.enabled:
-            raise ValueError("passive audio monitor requires enabled spatial audio settings")
+        if not settings.enabled and not arm_live_call:
+            raise ValueError("passive monitor requires spatial audio or an armed live call")
         self.person_xy = person_xy
         self.control_dt_s = control_dt_s
         self.simulation_id = simulation_id or new_simulation_id()
         self.mode = mode
-        self.audio = RescueAudio(settings)
+        self.limits = limits or ApproachLimits()
+        self.latch = ProximityLatch(self.limits.touch_distance_m, dwell_s)
+        self.audio = RescueAudio(settings) if settings.enabled else None
         self.audit_log = JsonlAuditLog(audit_log)
+        self.call_worker: BeaconCallWorker | None = None
+        self.front_camera_status = "not_requested"
+        self.front_camera_bytes = 0
+        self.last_surface_distance_m = float("inf")
         self._proximity_cued = False
         self._audio_sensor_elapsed_s = float("inf")
         self._closed = False
-        self.audit_log.write(
-            "spatial_audio_started",
-            simulator="mujoco",
-            simulation_id=self.simulation_id,
-            mode=mode,
-            motion_authority=False,
-            acoustic_localization=self.audio.sensor is not None,
-            cue_rendered=self.audio.renderer is not None,
-        )
+
+        if arm_live_call:
+            beacon_settings = BeaconSettings.from_env(arm_requested=True)
+            beacon_settings.validate()
+            self.call_worker = BeaconCallWorker(beacon_settings, self.audit_log)
+            self.audit_log.write(
+                "simulation_started",
+                simulator="mujoco",
+                simulation_id=self.simulation_id,
+                mode=mode,
+                live_call_armed=True,
+                motion_authority=False,
+            )
+        if self.audio is not None:
+            self.audit_log.write(
+                "spatial_audio_started",
+                simulator="mujoco",
+                simulation_id=self.simulation_id,
+                mode=mode,
+                motion_authority=False,
+                acoustic_localization=self.audio.sensor is not None,
+                cue_rendered=self.audio.renderer is not None,
+            )
+
+    @property
+    def live_call_armed(self) -> bool:
+        return self.call_worker is not None
+
+    @property
+    def call_submitted(self) -> bool:
+        return self.call_worker is not None and self.call_worker.submitted
 
     @property
     def spatial_audio_path(self) -> Path | None:
-        if self.audio.renderer is None:
+        if self.audio is None or self.audio.renderer is None:
             return None
         return self.audio.settings.path_for(self.simulation_id)
 
-    def update(self, robot_qpos: np.ndarray) -> None:
+    def update(
+        self,
+        robot_qpos: np.ndarray,
+        *,
+        image_supplier: Callable[[], bytes] | None = None,
+    ) -> None:
         qpos = np.asarray(robot_qpos, dtype=np.float64)
         if qpos.shape != (7,) or not np.all(np.isfinite(qpos)):
             raise ValueError("MuJoCo audio pose must contain seven finite values")
         robot_xy = (float(qpos[0]), float(qpos[1]))
         robot_yaw = yaw_from_wxyz(qpos[3:7])
-        self._audio_sensor_elapsed_s += self.control_dt_s
-        estimate = self.audio.last_estimate
-        if self.audio.sensor is not None and self._audio_sensor_elapsed_s >= 0.02:
-            estimate = self.audio.observe(
-                robot_xy=robot_xy,
-                robot_yaw_rad=robot_yaw,
-                source_xy=self.person_xy,
-            )
-            self._audio_sensor_elapsed_s = 0.0
-        bearing = (
-            estimate.bearing_rad
-            if estimate is not None
-            else body_bearing(
-                robot_xy=robot_xy,
-                robot_yaw_rad=robot_yaw,
-                target_xy=self.person_xy,
-            )
-        )
         center_distance = math.dist(robot_xy, self.person_xy)
-        surface_distance = max(0.0, center_distance - 0.25 - 0.30)
-        self.audio.cue(
-            dt_s=self.control_dt_s,
-            bearing_rad=bearing,
-            distance_m=surface_distance,
+        surface_distance = max(
+            0.0,
+            center_distance - self.limits.robot_radius_m - self.limits.person_radius_m,
         )
-        if surface_distance <= 0.15 and not self._proximity_cued:
+        self.last_surface_distance_m = surface_distance
+
+        if self.audio is not None:
+            self._audio_sensor_elapsed_s += self.control_dt_s
+            estimate = self.audio.last_estimate
+            if self.audio.sensor is not None and self._audio_sensor_elapsed_s >= 0.02:
+                estimate = self.audio.observe(
+                    robot_xy=robot_xy,
+                    robot_yaw_rad=robot_yaw,
+                    source_xy=self.person_xy,
+                )
+                self._audio_sensor_elapsed_s = 0.0
+            bearing = (
+                estimate.bearing_rad
+                if estimate is not None
+                else body_bearing(
+                    robot_xy=robot_xy,
+                    robot_yaw_rad=robot_yaw,
+                    target_xy=self.person_xy,
+                )
+            )
+            self.audio.cue(
+                dt_s=self.control_dt_s,
+                bearing_rad=bearing,
+                distance_m=surface_distance,
+            )
+
+        reached = self.latch.update(surface_distance, self.control_dt_s)
+        if reached and not self._proximity_cued:
             self._proximity_cued = True
-            self.audio.mark_proximity_latched()
+            if self.audio is not None:
+                self.audio.mark_proximity_latched()
+
+        if reached and self.call_worker is not None and not self.call_worker.submitted:
+            image_jpeg = None
+            if image_supplier is not None:
+                try:
+                    image_jpeg = image_supplier()
+                    self.front_camera_status = "captured"
+                    self.front_camera_bytes = len(image_jpeg)
+                    self.audit_log.write(
+                        "front_camera_captured",
+                        simulator="mujoco",
+                        simulation_id=self.simulation_id,
+                        jpeg_bytes=self.front_camera_bytes,
+                    )
+                except Exception as error:
+                    self.front_camera_status = "capture_failed"
+                    self.audit_log.write(
+                        "front_camera_capture_failed",
+                        simulator="mujoco",
+                        simulation_id=self.simulation_id,
+                        error_type=type(error).__name__,
+                    )
+            submitted = self.call_worker.submit_once(
+                RescueObservation(
+                    self.simulation_id,
+                    surface_distance,
+                    image_jpeg=image_jpeg,
+                )
+            )
+            if submitted and self.audio is not None:
+                self.audio.mark_call_submitted()
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        summary = self.audio.close(self.simulation_id)
-        if summary is not None:
-            self.audit_log.write(
-                "spatial_audio_written",
-                simulator="mujoco",
-                simulation_id=self.simulation_id,
-                mode=self.mode,
-                motion_authority=False,
-                **summary,
-            )
+        if self.call_worker is not None:
+            self.call_worker.close(timeout_s=50.0)
+        if self.audio is not None:
+            summary = self.audio.close(self.simulation_id)
+            if summary is not None:
+                self.audit_log.write(
+                    "spatial_audio_written",
+                    simulator="mujoco",
+                    simulation_id=self.simulation_id,
+                    mode=self.mode,
+                    motion_authority=False,
+                    **summary,
+                )
 
 
 def yaw_from_wxyz(quaternion: np.ndarray) -> float:

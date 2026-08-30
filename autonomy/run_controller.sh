@@ -9,8 +9,15 @@ if [[ ! -f "${CALIBRATION}" ]]; then
   exit 2
 fi
 
+if [[ "${spatial_audio_enabled}" == "1" ]]; then
+  set -- --spatial-audio --acoustic-localization "$@"
+fi
+if [[ "${live_call_enabled}" == "1" ]]; then
+  set -- --arm-live-call "$@"
+fi
+
 exec uv run mjpython -m summit_sentinel \
   --mode viewer --seconds 600 --joystick --joystick-index 0 \
   --joystick-calibration "${CALIBRATION}" \
   --bridge-db runtime/summit.db --telemetry-hz 15 \
-  "${audio_args[@]}" "$@"
+  "$@"

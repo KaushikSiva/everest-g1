@@ -1,4 +1,4 @@
-.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mujoco-rescue-audio mode-controller mode-gemini-rescue mode-gemini-carry mode-gemini-scan mcp rescue-dry rescue-audio brev-setup brev-run isaac-setup isaac-run groot-setup sonic-setup verify
+.PHONY: setup sim sim-beacon sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mujoco-rescue-audio mode-controller mode-gemini-rescue mode-gemini-carry mode-gemini-scan demo-video mcp rescue-dry rescue-audio brev-setup brev-run isaac-setup isaac-run groot-setup sonic-setup verify
 
 SIM_LAUNCHER := $(if $(filter Darwin,$(shell uname -s)),mjpython,python)
 
@@ -7,6 +7,14 @@ setup:
 
 sim:
 	uv run $(SIM_LAUNCHER) -m summit_sentinel --mode viewer --seconds 600 --joystick --joystick-index 0 --joystick-calibration runtime/dualsense.json --bridge-db runtime/summit.db --telemetry-hz 15
+
+sim-beacon:
+	@env_file=".env"; \
+	if [ ! -f "$$env_file" ]; then env_file="../sim-g1-everest/.env"; fi; \
+	test -f "$$env_file" || { echo "Missing .env with BEACON_API_URL and BEACON_API_TOKEN" >&2; exit 1; }; \
+	echo "Loading Beacon configuration from $$env_file"; \
+	set -a; . "$$env_file"; set +a; \
+	EVEREST_ARM_LIVE_CALL=ARM-LIVE-CALL ./autonomy/run_controller.sh
 
 sim-macos:
 	uv run mjpython -m summit_sentinel --mode viewer --seconds 600 --joystick --joystick-index 0 --joystick-calibration runtime/dualsense.json --bridge-db runtime/summit.db --telemetry-hz 15
@@ -34,6 +42,9 @@ mode-gemini-carry:
 
 mode-gemini-scan:
 	./autonomy/run_scan.sh
+
+demo-video:
+	./scripts/render_autonomy_demo.sh
 
 mcp:
 	uv run summit-sentinel-mcp --bridge-db runtime/summit.db --port 8000

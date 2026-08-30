@@ -15,6 +15,14 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 2
 fi
 
+# Optional ignored local secrets. A dedicated Gemini file avoids shadowing the
+# existing BeaconCall .env migration path used by `make sim-beacon`.
+if [[ -f ".env.gemini" ]]; then
+  set -a
+  source ".env.gemini"
+  set +a
+fi
+
 require_gemini_key() {
   if [[ -z "${GEMINI_API_KEY:-}" ]]; then
     read -r -s -p "Gemini API key (used for this process only): " GEMINI_API_KEY
@@ -27,12 +35,24 @@ require_gemini_key() {
   fi
 }
 
-live_call_args=()
+has_cli_flag() {
+  local wanted="$1"
+  shift
+  local argument
+  for argument in "$@"; do
+    if [[ "${argument}" == "${wanted}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+live_call_enabled=0
 if [[ "${EVEREST_ARM_LIVE_CALL:-}" == "ARM-LIVE-CALL" ]]; then
-  live_call_args+=(--arm-live-call)
+  live_call_enabled=1
 fi
 
-audio_args=(--spatial-audio --acoustic-localization)
+spatial_audio_enabled=1
 if [[ "${EVEREST_DISABLE_SPATIAL_AUDIO:-}" == "1" ]]; then
-  audio_args=()
+  spatial_audio_enabled=0
 fi

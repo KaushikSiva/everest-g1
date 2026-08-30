@@ -25,6 +25,9 @@ FRONT_CAMERA_NAME = "g1_front_camera"
 FRONT_CAMERA_WIDTH = 640
 FRONT_CAMERA_HEIGHT = 480
 MAX_FRONT_CAMERA_JPEG_BYTES = 2_000_000
+CARRY_FORWARD_OF_HANDS_M = 0.12
+CARRY_PERSON_YAW_OFFSET_RAD = np.pi / 2.0
+CARRY_PERSON_ROLL_OFFSET_RAD = -np.pi / 2.0
 StopAuthority = Literal["local", "supervisory", "fault"]
 
 
@@ -143,6 +146,9 @@ class SummitSentinelEnv:
         self.model.geom("everest_terrain")
         self.model.body("downed_person")
         self.model.site("downed_person_target")
+        self.model.site("downed_person_carry_anchor")
+        self.model.site("left_hand_carry_anchor")
+        self.model.site("right_hand_carry_anchor")
         self.model.camera(FRONT_CAMERA_NAME)
 
     @property
@@ -199,14 +205,44 @@ class SummitSentinelEnv:
         root = self.data.joint("floating_base_joint").qpos
         w, x, y, z = (float(value) for value in root[3:7])
         yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-        offset_forward = 0.38
-        self.data.mocap_pos[self._casualty_mocap_id] = np.asarray(
+
+        # The arms in this 12-actuator model are fixed visuals. Anchor the
+        # casualty's torso support point to their actual midpoint instead of a
+        # base-height guess, then hold it slightly forward of both palms.
+        root_rotation_flat = np.empty(9, dtype=np.float64)
+        mujoco.mju_quat2Mat(root_rotation_flat, root[3:7])
+        root_rotation = root_rotation_flat.reshape(3, 3)
+        hands_local = 0.5 * (
+            self.model.site("left_hand_carry_anchor").pos
+            + self.model.site("right_hand_carry_anchor").pos
+        )
+        hand_midpoint = np.asarray(root[:3]) + root_rotation @ hands_local
+        forward = np.asarray([np.cos(yaw), np.sin(yaw), 0.0])
+        desired_support = hand_midpoint + CARRY_FORWARD_OF_HANDS_M * forward
+
+        # A cradle carry places the casualty across both forearms, perpendicular
+        # to the G1's forward axis. Without this quarter-turn the long body axis
+        # runs front-to-back through the robot's torso.
+        person_yaw = yaw + CARRY_PERSON_YAW_OFFSET_RAD
+        yaw_quat = np.asarray([np.cos(person_yaw / 2.0), 0.0, 0.0, np.sin(person_yaw / 2.0)])
+        roll_quat = np.asarray(
             [
-                root[0] + offset_forward * np.cos(yaw),
-                root[1] + offset_forward * np.sin(yaw),
-                root[2] + 0.34,
+                np.cos(CARRY_PERSON_ROLL_OFFSET_RAD / 2.0),
+                np.sin(CARRY_PERSON_ROLL_OFFSET_RAD / 2.0),
+                0.0,
+                0.0,
             ]
         )
+        person_quat = np.empty(4, dtype=np.float64)
+        mujoco.mju_mulQuat(person_quat, yaw_quat, roll_quat)
+        person_rotation_flat = np.empty(9, dtype=np.float64)
+        mujoco.mju_quat2Mat(person_rotation_flat, person_quat)
+        person_rotation = person_rotation_flat.reshape(3, 3)
+        person_anchor = self.model.site("downed_person_carry_anchor").pos
+        self.data.mocap_pos[self._casualty_mocap_id] = (
+            desired_support - person_rotation @ person_anchor
+        )
+        self.data.mocap_quat[self._casualty_mocap_id] = person_quat
 
     def _joint_state(self) -> tuple[np.ndarray, np.ndarray]:
         q = np.asarray(

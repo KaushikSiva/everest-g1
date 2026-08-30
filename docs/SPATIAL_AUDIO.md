@@ -23,6 +23,12 @@ MuJoCo modes, the Isaac Lab-Arena rescue policy, and `everest-g1 dry-run`.
 | Gemini carry | Same as rescue until the simulated pickup | Bearing steers only before pickup |
 | Gemini scan | Initial Gemini route context and continuous stereo cue | None; validated Gemini route remains authoritative |
 
+At mission start, the bearing and confidence join the front-camera frame,
+body/terrain state, and weather factors in the world-model packet sent to
+Gemini Robotics-ER 2. Gemini may use that evidence to choose among the supplied
+hard-safe routes. This is higher-level reasoning only: no waveform, transcript,
+or raw microphone stream reaches GR00T, SONIC, BeaconCall, LiveKit, or Twilio.
+
 ## Authority: audio steers, range gates
 
 This is the rule for rescue and carry, the only modes where audio can steer.
