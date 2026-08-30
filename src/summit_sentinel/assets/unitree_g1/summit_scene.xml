@@ -41,7 +41,7 @@
     <!-- Detailed, static, non-colliding Robot Nurse casualty. The source GLB is
          converted to OBJ because MuJoCo does not natively load FBX/GLB. The
          target site stays fixed so proximity and dwell semantics are unchanged. -->
-    <body name="downed_person" pos="1.35 0.30 0.106">
+    <body name="downed_person" pos="1.35 0.30 0.106" mocap="true">
       <site name="downed_person_target" pos="0 0 0.18" size="0.04" type="sphere"
             rgba="0.95 0.18 0.12 0.55" group="4"/>
       <geom name="casualty_person" type="mesh" mesh="snow_casualty_person"

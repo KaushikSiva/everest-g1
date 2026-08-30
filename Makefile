@@ -1,4 +1,4 @@
-.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mcp rescue-dry brev-setup brev-run isaac-setup isaac-run groot-setup sonic-setup verify
+.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mode-controller mode-gemini-rescue mode-gemini-carry mode-gemini-scan mcp rescue-dry brev-setup brev-run isaac-setup isaac-run groot-setup sonic-setup verify
 
 SIM_LAUNCHER := $(if $(filter Darwin,$(shell uname -s)),mjpython,python)
 
@@ -22,6 +22,18 @@ mujoco-rescue:
 
 mujoco-rescue-headless:
 	uv run summit-sentinel --mode headless --seconds 12 --rescue --json
+
+mode-controller:
+	./autonomy/run_controller.sh
+
+mode-gemini-rescue:
+	./autonomy/run_rescue.sh
+
+mode-gemini-carry:
+	./autonomy/run_carry.sh
+
+mode-gemini-scan:
+	./autonomy/run_scan.sh
 
 mcp:
 	uv run summit-sentinel-mcp --bridge-db runtime/summit.db --port 8000

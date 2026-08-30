@@ -49,6 +49,9 @@ the robot simulation/control stack, not sponsor claims made by this repository.
 - Pinned GR00T N1.7/SONIC training lane using `UNITREE_G1_SONIC`.
 - The same approach, stop, dwell, and BeaconCall flow in local MuJoCo on macOS.
 - One bounded MuJoCo G1 front-camera JPEG, captured only after an armed proximity latch.
+- Three Mac MuJoCo Gemini ER 2 modes: rescue, visual carry proxy, and
+  environment-aware free scan using slope, temperature, wind, visibility,
+  snow, friction, and distance.
 
 This repository does **not** claim a zero simulation-to-reality gap. It pins
 software, bounds commands, logs measurements, and separates control from cloud
@@ -93,6 +96,9 @@ The dry run must finish with `"reached": true` and
 `"live_call_armed": false`. It never places a call.
 
 ## MuJoCo on macOS: same rescue behavior
+
+For the PlayStation controller plus all three Gemini Robotics ER 2 autonomous
+modes, use the dedicated [macOS four-mode runbook](docs/MAC_MUJOCO_MODES.md).
 
 Run the G1, prone-person proxy, approach controller, stop, and dwell locally:
 

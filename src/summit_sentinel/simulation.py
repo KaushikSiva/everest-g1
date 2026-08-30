@@ -109,6 +109,10 @@ class SummitSentinelEnv:
         self._reset_since_emergency_stop = False
         self._reset_authority: str | None = None
         self.locomotion_inhibited = False
+        self.casualty_carrying = False
+        self._casualty_mocap_id = int(self.model.body("downed_person").mocapid[0])
+        if self._casualty_mocap_id < 0:
+            raise ValueError("downed_person must be a MuJoCo mocap body")
         self.last_observation = np.zeros(self.config.controller.num_observations, dtype=np.float32)
         self.last_torque = np.zeros(self.config.controller.num_actions, dtype=np.float32)
         self.reset(authority="system")
@@ -178,6 +182,32 @@ class SummitSentinelEnv:
             raise RuntimeError("front-camera JPEG encoding failed or exceeded 2 MB")
         return jpeg
 
+    def set_casualty_carrying(self, enabled: bool) -> None:
+        """Attach/release the visual casualty proxy; this is not a physical grasp."""
+
+        self.casualty_carrying = bool(enabled)
+        if not self.casualty_carrying:
+            person = self.model.body("downed_person")
+            self.data.mocap_pos[self._casualty_mocap_id] = self.model.body_pos[person.id]
+            self.data.mocap_quat[self._casualty_mocap_id] = self.model.body_quat[person.id]
+        self._update_carried_casualty_pose()
+        mujoco.mj_forward(self.model, self.data)
+
+    def _update_carried_casualty_pose(self) -> None:
+        if not self.casualty_carrying:
+            return
+        root = self.data.joint("floating_base_joint").qpos
+        w, x, y, z = (float(value) for value in root[3:7])
+        yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+        offset_forward = 0.38
+        self.data.mocap_pos[self._casualty_mocap_id] = np.asarray(
+            [
+                root[0] + offset_forward * np.cos(yaw),
+                root[1] + offset_forward * np.sin(yaw),
+                root[2] + 0.34,
+            ]
+        )
+
     def _joint_state(self) -> tuple[np.ndarray, np.ndarray]:
         q = np.asarray(
             [self.data.joint(name).qpos[0] for name in self.config.controller.joint_names],
@@ -213,6 +243,7 @@ class SummitSentinelEnv:
         except RuntimeError as error:
             self._activate_fallback(f"policy memory reset failure: {error}")
         mujoco.mj_resetData(self.model, self.data)
+        self.casualty_carrying = False
         root = self.data.joint("floating_base_joint")
         root.qpos[:] = np.asarray(
             [0.0, 0.0, ROBOT_NOMINAL_BASE_HEIGHT + plateau_world_height(), 1.0, 0.0, 0.0, 0.0]
@@ -459,6 +490,9 @@ class SummitSentinelEnv:
         self.physics_steps += 1
         self.last_torque[:] = torque
         self._apply_fallback_stand_brace()
+        self._update_carried_casualty_pose()
+        if self.casualty_carrying:
+            mujoco.mj_forward(self.model, self.data)
 
         if not np.all(np.isfinite(self.data.qpos)) or not np.all(np.isfinite(self.data.qvel)):
             self.emergency_stop("non-finite state after physics step", authority="fault")

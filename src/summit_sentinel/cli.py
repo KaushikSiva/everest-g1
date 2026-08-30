@@ -13,6 +13,13 @@ from pathlib import Path
 
 import numpy as np
 
+from everest_g1.autonomy import (
+    GEMINI_ROBOTICS_MODEL,
+    AutonomousMujocoController,
+    EnvironmentProfile,
+    GeminiRoutePlanner,
+    build_route_options,
+)
 from everest_g1.mujoco import MujocoRescueController
 from summit_sentinel.agent_runtime import (
     BridgeRuntimeWorker,
@@ -76,6 +83,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="approach the prone person and run the proximity/call gate",
     )
+    parser.add_argument(
+        "--autonomy",
+        choices=("rescue", "carry", "scan"),
+        help="Gemini ER 2 high-level planning with locally bounded MuJoCo execution",
+    )
+    parser.add_argument(
+        "--gemini-model",
+        default=GEMINI_ROBOTICS_MODEL,
+        help="Gemini Robotics ER model code",
+    )
+    parser.add_argument(
+        "--offline-plan",
+        action="store_true",
+        help="explicitly replace Gemini with deterministic lowest-risk selection",
+    )
+    parser.add_argument("--temperature-c", type=float, default=-18.0)
+    parser.add_argument("--wind-mps", type=float, default=8.0)
+    parser.add_argument("--visibility-m", type=float, default=900.0)
+    parser.add_argument("--snow-depth-m", type=float, default=0.14)
+    parser.add_argument("--terrain-friction", type=float, default=0.82)
     parser.add_argument(
         "--arm-live-call",
         action="store_true",
@@ -210,6 +237,23 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         use_policy=not args.no_policy,
         auto_reset=not args.no_auto_reset,
     )
+    profile = EnvironmentProfile(
+        temperature_c=args.temperature_c,
+        wind_mps=args.wind_mps,
+        visibility_m=args.visibility_m,
+        snow_depth_m=args.snow_depth_m,
+        friction=args.terrain_friction,
+    )
+    profile.validate()
+    if args.autonomy is not None:
+        env.apply_scenario_conditions(
+            {
+                "friction": profile.friction,
+                "wind_mps": profile.wind_mps,
+                "visibility_m": profile.visibility_m,
+                "snow_depth_m": profile.snow_depth_m,
+            }
+        )
     initial_resets = env.reset_count
     physics_steps = max(0, round(args.seconds / config.simulation.timestep))
     falls = 0
@@ -224,8 +268,6 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         if bridge is not None
         else None
     )
-    if bridge_worker is not None:
-        bridge_worker.start()
     safety_warning: str | None = None
     rescue = (
         MujocoRescueController(
@@ -238,6 +280,30 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         if args.rescue
         else None
     )
+    autonomy = None
+    if args.autonomy is not None:
+        root = env.data.joint("floating_base_joint").qpos
+        options = build_route_options(
+            args.autonomy,
+            profile,
+            start_xy=(float(root[0]), float(root[1])),
+        )
+        planner = GeminiRoutePlanner(
+            model=args.gemini_model,
+            offline=args.offline_plan,
+        )
+        planning_frame = None if args.offline_plan else env.front_camera_jpeg()
+        route = planner.select(args.autonomy, options, image_jpeg=planning_frame)
+        autonomy = AutonomousMujocoController(
+            env=env,
+            mode=args.autonomy,
+            route=route,
+            planner=planner,
+            arm_live_call=args.arm_live_call,
+            simulation_id=args.simulation_id or "",
+            audit_log=args.audit_log,
+            planning_frame_bytes=len(planning_frame) if planning_frame is not None else 0,
+        )
 
     def advance() -> tuple[object, bool]:
         nonlocal falls, safety_warning
@@ -277,6 +343,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
                 env.data.joint("floating_base_joint").qpos.copy(),
                 image_supplier=env.front_camera_jpeg if args.arm_live_call else None,
             )
+        if autonomy is not None and not env.emergency_stop_latched:
+            effective_command = autonomy.update(env)
         result = env.step(effective_command)
         falls += int(result.fell)
         if result.reset and bridge_worker is not None and command_applier is not None:
@@ -292,6 +360,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         return result, True
 
     try:
+        if bridge_worker is not None:
+            bridge_worker.start()
         if args.mode == "viewer":
             import mujoco.viewer
 
@@ -322,6 +392,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
     finally:
         if rescue is not None:
             rescue.close()
+        if autonomy is not None:
+            autonomy.close()
         if bridge_worker is not None:
             rejected_ids = bridge_worker.discard_commands()
             if rejected_ids:
@@ -351,16 +423,69 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         "telemetry_frames": bridge_worker.records_written if bridge_worker is not None else 0,
         "bridge_background_failure": bridge_worker.failure if bridge_worker is not None else None,
         "bridge_db": str(bridge.path) if bridge is not None else None,
-        "rescue_enabled": rescue is not None,
-        "rescue_reached": rescue.latch.latched if rescue is not None else False,
-        "rescue_distance_m": (
-            rescue.last_command.surface_distance_m if rescue is not None else None
+        "rescue_enabled": rescue is not None or args.autonomy in {"rescue", "carry"},
+        "rescue_reached": (
+            rescue.latch.latched
+            if rescue is not None
+            else autonomy.rescue.latch.latched
+            if autonomy is not None and autonomy.rescue is not None
+            else False
         ),
-        "live_call_armed": rescue.live_call_armed if rescue is not None else False,
-        "call_submitted": rescue.call_submitted if rescue is not None else False,
-        "front_camera_status": rescue.front_camera_status if rescue is not None else "disabled",
-        "front_camera_bytes": rescue.front_camera_bytes if rescue is not None else 0,
-        "simulation_id": rescue.simulation_id if rescue is not None else None,
+        "rescue_distance_m": (
+            rescue.last_command.surface_distance_m
+            if rescue is not None
+            else autonomy.rescue.last_command.surface_distance_m
+            if autonomy is not None and autonomy.rescue is not None
+            else None
+        ),
+        "live_call_armed": (
+            rescue.live_call_armed
+            if rescue is not None
+            else autonomy.live_call_armed
+            if autonomy is not None
+            else False
+        ),
+        "call_submitted": (
+            rescue.call_submitted
+            if rescue is not None
+            else autonomy.call_submitted
+            if autonomy is not None
+            else False
+        ),
+        "front_camera_status": (
+            rescue.front_camera_status
+            if rescue is not None
+            else autonomy.rescue.front_camera_status
+            if autonomy is not None and autonomy.rescue is not None
+            else "planning-only"
+            if autonomy is not None
+            else "disabled"
+        ),
+        "front_camera_bytes": (
+            rescue.front_camera_bytes
+            if rescue is not None
+            else autonomy.rescue.front_camera_bytes
+            if autonomy is not None and autonomy.rescue is not None
+            else 0
+        ),
+        "simulation_id": (
+            rescue.simulation_id
+            if rescue is not None
+            else autonomy.rescue.simulation_id
+            if autonomy is not None and autonomy.rescue is not None
+            else None
+        ),
+        "autonomy_mode": args.autonomy,
+        "autonomy_route": autonomy.route.route_id if autonomy is not None else None,
+        "autonomy_planner": autonomy.planner.provider if autonomy is not None else None,
+        "autonomy_complete": autonomy.completed if autonomy is not None else False,
+        "autonomy_scan_cycles": autonomy.scan_cycles if autonomy is not None else 0,
+        "carry_proxy_attached": (autonomy.carry_proxy_attached if autonomy is not None else False),
+        "autonomy_live_call_armed": (autonomy.live_call_armed if autonomy is not None else False),
+        "autonomy_call_submitted": (autonomy.call_submitted if autonomy is not None else False),
+        "autonomy_planning_camera_bytes": (
+            autonomy.planning_frame_bytes if autonomy is not None else 0
+        ),
     }
 
 
@@ -372,8 +497,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--seconds must be non-negative")
     if not 10.0 <= args.telemetry_hz <= 20.0:
         parser.error("--telemetry-hz must be between 10 and 20")
-    if args.arm_live_call and not args.rescue:
-        parser.error("--arm-live-call requires --rescue")
+    if args.rescue and args.autonomy is not None:
+        parser.error("--rescue and --autonomy are mutually exclusive")
+    if args.autonomy is not None and args.joystick:
+        parser.error("--autonomy and --joystick are mutually exclusive")
+    if args.offline_plan and args.autonomy is None:
+        parser.error("--offline-plan requires --autonomy")
+    if args.arm_live_call and not (args.rescue or args.autonomy in {"rescue", "carry"}):
+        parser.error("--arm-live-call requires --rescue or rescue/carry autonomy")
     if args.list_joysticks:
         devices = list_joysticks()
         if not devices:

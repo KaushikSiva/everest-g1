@@ -39,6 +39,7 @@ def test_terrain_visual_has_no_checker_grid_and_preserves_physics_contract() -> 
 
     person = scene.find("./worldbody/body[@name='downed_person']")
     assert person is not None
+    assert person.get("mocap") == "true"
     assert person.find("./site[@name='downed_person_target']") is not None
     person_geoms = person.findall("./geom")
     assert len(person_geoms) == 1

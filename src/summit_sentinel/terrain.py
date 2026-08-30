@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import struct
 import zlib
 from pathlib import Path
@@ -120,3 +121,51 @@ def plateau_world_height() -> float:
     """Return the MuJoCo world-space height of the encoded flat patch."""
 
     return float(round(PLATEAU_ELEVATION * 255) / 255 * HEIGHT_SCALE_METERS)
+
+
+def terrain_world_height(x_m: float, y_m: float, seed: int = TERRAIN_SEED) -> float:
+    """Return a bilinearly interpolated terrain height at a world XY point."""
+
+    if not np.isfinite((x_m, y_m)).all():
+        raise ValueError("terrain coordinates must be finite")
+    x = float(np.clip(x_m, -HALF_EXTENT_METERS, HALF_EXTENT_METERS))
+    y = float(np.clip(y_m, -HALF_EXTENT_METERS, HALF_EXTENT_METERS))
+    pixels = encoded_heightfield(seed).astype(np.float64)
+    scale = (GRID_SIZE - 1) / (2.0 * HALF_EXTENT_METERS)
+    column = (x + HALF_EXTENT_METERS) * scale
+    row = (y + HALF_EXTENT_METERS) * scale
+    x0 = int(np.floor(column))
+    y0 = int(np.floor(row))
+    x1 = min(x0 + 1, GRID_SIZE - 1)
+    y1 = min(y0 + 1, GRID_SIZE - 1)
+    tx = column - x0
+    ty = row - y0
+    value = (
+        pixels[y0, x0] * (1.0 - tx) * (1.0 - ty)
+        + pixels[y0, x1] * tx * (1.0 - ty)
+        + pixels[y1, x0] * (1.0 - tx) * ty
+        + pixels[y1, x1] * tx * ty
+    )
+    return float(value / 255.0 * HEIGHT_SCALE_METERS)
+
+
+def terrain_slope_degrees(
+    x_m: float,
+    y_m: float,
+    *,
+    sample_radius_m: float = 0.15,
+    seed: int = TERRAIN_SEED,
+) -> float:
+    """Estimate local grade from centered terrain-height samples."""
+
+    if not np.isfinite(sample_radius_m) or not 0.05 <= sample_radius_m <= 1.0:
+        raise ValueError("sample_radius_m must be between 0.05 and 1.0")
+    dz_dx = (
+        terrain_world_height(x_m + sample_radius_m, y_m, seed)
+        - terrain_world_height(x_m - sample_radius_m, y_m, seed)
+    ) / (2.0 * sample_radius_m)
+    dz_dy = (
+        terrain_world_height(x_m, y_m + sample_radius_m, seed)
+        - terrain_world_height(x_m, y_m - sample_radius_m, seed)
+    ) / (2.0 * sample_radius_m)
+    return math.degrees(math.atan(math.hypot(dz_dx, dz_dy)))
