@@ -3,6 +3,7 @@
 from everest_g1.autonomy.controller import AutonomousMujocoController
 from everest_g1.autonomy.planning import (
     GEMINI_ROBOTICS_MODEL,
+    AcousticPlanningObservation,
     EnvironmentProfile,
     GeminiRoutePlanner,
     PlannerError,
@@ -12,6 +13,7 @@ from everest_g1.autonomy.planning import (
 
 __all__ = [
     "GEMINI_ROBOTICS_MODEL",
+    "AcousticPlanningObservation",
     "AutonomousMujocoController",
     "EnvironmentProfile",
     "GeminiRoutePlanner",

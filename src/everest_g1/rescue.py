@@ -89,3 +89,39 @@ def approach_person(
         surface_distance_m=surface_distance,
         reached=False,
     )
+
+
+def body_bearing(
+    *,
+    robot_xy: tuple[float, float],
+    robot_yaw_rad: float,
+    target_xy: tuple[float, float],
+) -> float:
+    """Return the bearing to a target in the robot body frame (0 ahead, + left)."""
+
+    dx = target_xy[0] - robot_xy[0]
+    dy = target_xy[1] - robot_xy[1]
+    return _wrap_angle(math.atan2(dy, dx) - robot_yaw_rad)
+
+
+def target_from_bearing(
+    *,
+    robot_xy: tuple[float, float],
+    robot_yaw_rad: float,
+    bearing_rad: float,
+    surface_distance_m: float,
+    limits: ApproachLimits,
+) -> tuple[float, float]:
+    """Place a steering target at ``bearing_rad`` and the measured range.
+
+    Bearing may come from a noisy sensor. The range never does: it is the same
+    measured surface distance that gates the stop, re-expressed as a centre
+    distance, so a wrong bearing can only steer badly and never fake arrival.
+    """
+
+    center_distance = surface_distance_m + limits.robot_radius_m + limits.person_radius_m
+    heading = robot_yaw_rad + bearing_rad
+    return (
+        robot_xy[0] + center_distance * math.cos(heading),
+        robot_xy[1] + center_distance * math.sin(heading),
+    )

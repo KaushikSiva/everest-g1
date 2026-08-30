@@ -11,6 +11,11 @@ Gemini is a high-level planner here. It never writes joint targets, torques, or
 raw velocity commands. The local 500 Hz MuJoCo loop and bundled locomotion
 policy execute the selected path.
 
+All four launchers also enable the simulated microphone array and stereo cue.
+Gemini receives the initial bearing/confidence alongside the camera and terrain
+table. Rescue/carry may use that bearing to steer the final approach; controller
+and scan keep it passive so it cannot override joystick or route authority.
+
 ## 1. One-time setup
 
 ```bash
@@ -48,6 +53,16 @@ The carry mode is deliberately labeled a MuJoCo visual carry proxy. The current
 12-actuator G1 XML controls the legs only; its arm meshes are fixed. It can
 demonstrate approach, proximity, attachment, and locomotion state transitions,
 but not validate a physical grasp.
+
+Each run writes a 16-bit stereo cue to
+`runtime/everest-g1-rescue-<simulation-id>.wav` when the viewer closes. The cue
+encodes casualty bearing, distance, proximity, and call submission. It is not
+live speaker playback. The launcher prints the exact path and an `afplay`
+command after shutdown. To deliberately disable it:
+
+```bash
+EVEREST_DISABLE_SPATIAL_AUDIO=1 ./autonomy/run_scan.sh
+```
 
 ## 3. Change weather/terrain assumptions
 
@@ -97,3 +112,6 @@ Planning and mission transitions append to
 invalid Gemini response, missing camera image, missing key, unsafe route, fall,
 or non-finite control value fails closed; there is no automatic fallback from
 Gemini to an unreported planner. Use `--offline-plan` explicitly when wanted.
+
+See [Spatial audio](SPATIAL_AUDIO.md) for the microphone geometry, stereo
+mapping, and per-mode authority boundaries.

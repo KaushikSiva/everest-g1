@@ -52,6 +52,8 @@ the robot simulation/control stack, not sponsor claims made by this repository.
 - Three Mac MuJoCo Gemini ER 2 modes: rescue, visual carry proxy, and
   environment-aware free scan using slope, temperature, wind, visibility,
   snow, friction, and distance.
+- Optional spatial audio: a simulated microphone array steers the approach by
+  bearing, and a stereo operator cue is rendered to a WAV file.
 
 This repository does **not** claim a zero simulation-to-reality gap. It pins
 software, bounds commands, logs measurements, and separates control from cloud
@@ -136,6 +138,32 @@ capture or analysis fails, the base proximity report still proceeds without
 inventing visual facts. BeaconCall—not the simulator—owns the phone number,
 OpenAI/LiveKit keys, Twilio SIP trunk, wording, acknowledgment wait, and hangup.
 Unset the arming variables afterward.
+
+## Spatial audio across all four MuJoCo modes
+
+Two independent halves are optional in the raw CLI and enabled by default by
+the four macOS launchers:
+
+```bash
+make rescue-audio            # no GPU, no MuJoCo: renders a cue WAV
+make mujoco-rescue-audio     # the MuJoCo rescue with both halves on
+```
+
+`--acoustic-localization` simulates a four-microphone torso array and recovers
+the *bearing* of the downed person from time differences of arrival. It steers
+only the final rescue/carry approach; controller and scan use it passively.
+`--spatial-audio` renders a stereo cue whose pan and interaural delay follow
+bearing, whose repetition rate and gain follow distance, and which plays a
+distinct tone at the proximity latch and at call submission. The track is
+written to `runtime/everest-g1-rescue-<simulation_id>.wav` at shutdown.
+
+Where audio is allowed to steer, it never gates. The bearing only picks a direction, while the
+distance used to build the steering target is the same measured surface
+distance that gates the stop. A wrong bearing can steer badly and can never
+stop the robot early or release a call. Rendering is buffer arithmetic with no
+audio device, so it does not stall the 50 Hz policy and runs headless.
+
+Details, mappings, and the noise model: [Spatial audio](docs/SPATIAL_AUDIO.md).
 
 ## Brev: interactive Isaac Lab-Arena
 
@@ -268,6 +296,8 @@ not replace the Isaac commissioning gate.
 - Proximity latches locally and motion becomes zero before call submission.
 - One simulator process can enqueue at most one call.
 - Audit logs omit tokens and destination numbers.
+- Spatial audio is a monitoring and steering aid only; it never gates proximity
+  or a call, and it defaults off.
 - No physical Orin/Jetson deployment is authorized by this repository.
 
 See [SECURITY.md](SECURITY.md) before enabling any external service.

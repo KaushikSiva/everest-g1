@@ -31,3 +31,8 @@ live_call_args=()
 if [[ "${EVEREST_ARM_LIVE_CALL:-}" == "ARM-LIVE-CALL" ]]; then
   live_call_args+=(--arm-live-call)
 fi
+
+audio_args=(--spatial-audio --acoustic-localization)
+if [[ "${EVEREST_DISABLE_SPATIAL_AUDIO:-}" == "1" ]]; then
+  audio_args=()
+fi

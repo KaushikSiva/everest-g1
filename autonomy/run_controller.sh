@@ -12,4 +12,5 @@ fi
 exec uv run mjpython -m summit_sentinel \
   --mode viewer --seconds 600 --joystick --joystick-index 0 \
   --joystick-calibration "${CALIBRATION}" \
-  --bridge-db runtime/summit.db --telemetry-hz 15 "$@"
+  --bridge-db runtime/summit.db --telemetry-hz 15 \
+  "${audio_args[@]}" "$@"

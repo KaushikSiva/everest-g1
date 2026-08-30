@@ -25,6 +25,23 @@ class PlannerError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class AcousticPlanningObservation:
+    """Initial simulated array reading supplied to Gemini as route context."""
+
+    bearing_rad: float
+    confidence: float
+    coarse_range_m: float
+
+    def validate(self) -> None:
+        if not math.isfinite(self.bearing_rad) or not -math.pi <= self.bearing_rad <= math.pi:
+            raise ValueError("acoustic bearing must be finite and wrapped to [-pi, pi]")
+        if not math.isfinite(self.confidence) or not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("acoustic confidence must be between zero and one")
+        if not math.isfinite(self.coarse_range_m) or self.coarse_range_m < 0.0:
+            raise ValueError("coarse acoustic range must be finite and non-negative")
+
+
+@dataclass(frozen=True)
 class EnvironmentProfile:
     """Environmental inputs used for both route scoring and the Gemini prompt."""
 
@@ -263,6 +280,7 @@ class GeminiRoutePlanner:
         self.offline = offline
         self.last_reason = ""
         self.last_observations = ""
+        self.last_acoustic_observation: AcousticPlanningObservation | None = None
         self.provider = "offline-deterministic" if offline else "gemini-er-2"
 
     def select(
@@ -271,12 +289,16 @@ class GeminiRoutePlanner:
         options: tuple[RouteOption, ...],
         *,
         image_jpeg: bytes | None,
+        acoustic_observation: AcousticPlanningObservation | None = None,
     ) -> RouteOption:
         if not options:
             raise PlannerError("no route options were generated")
         safe_options = tuple(option for option in options if option.hard_safe)
         if not safe_options:
             raise PlannerError("all routes violate the local hard safety envelope")
+        if acoustic_observation is not None:
+            acoustic_observation.validate()
+        self.last_acoustic_observation = acoustic_observation
         if self.offline:
             selected = min(
                 safe_options,
@@ -292,7 +314,7 @@ class GeminiRoutePlanner:
         if image_jpeg is None or not image_jpeg.startswith(b"\xff\xd8"):
             raise PlannerError("a valid G1 front-camera JPEG is required for Gemini planning")
 
-        prompt = self._prompt(mode, options)
+        prompt = self._prompt(mode, options, acoustic_observation=acoustic_observation)
         try:
             from google import genai
             from google.genai import types
@@ -340,15 +362,35 @@ class GeminiRoutePlanner:
         return selected
 
     @staticmethod
-    def _prompt(mode: AutonomyMode, options: tuple[RouteOption, ...]) -> str:
+    def _prompt(
+        mode: AutonomyMode,
+        options: tuple[RouteOption, ...],
+        *,
+        acoustic_observation: AcousticPlanningObservation | None = None,
+    ) -> str:
         payload = [option.prompt_payload() for option in options]
+        acoustic_context = (
+            {
+                "bearing_rad_body_frame": round(acoustic_observation.bearing_rad, 5),
+                "confidence": round(acoustic_observation.confidence, 4),
+                "coarse_range_m_telemetry_only": round(acoustic_observation.coarse_range_m, 3),
+            }
+            if acoustic_observation is not None
+            else None
+        )
         return (
             "You are the high-level embodied-reasoning planner for a Unitree G1 in MuJoCo. "
             f"Mission mode: {mode}. Inspect the attached robot-front-camera frame and compare "
             "EVERY supplied route using slope_deg, temperature_c, wind_mps, visibility_m, "
             "snow_depth_m, effective_friction, distance, and aggregate risk. Prefer a route "
-            "that completes the mission conservatively. Never choose hard_safe=false. Return "
+            "that is consistent with the initial acoustic bearing when one is supplied, but "
+            "treat its coarse acoustic range as telemetry only, never as a stop/call gate. "
+            "Complete the mission conservatively. Never choose hard_safe=false. Return "
             "only the required structured response; choose exactly one existing route_id. "
             "You are not issuing joint, torque, or velocity commands. Routes:\n"
-            + json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            + json.dumps(
+                {"acoustic_observation": acoustic_context, "routes": payload},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
         )

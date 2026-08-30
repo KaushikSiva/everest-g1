@@ -5,4 +5,4 @@ require_gemini_key
 
 exec uv run --extra autonomy mjpython -m summit_sentinel \
   --mode viewer --seconds 150 --autonomy carry \
-  "${live_call_args[@]}" "$@"
+  "${audio_args[@]}" "${live_call_args[@]}" "$@"

@@ -5,6 +5,7 @@ import pytest
 
 from everest_g1.autonomy.controller import AutonomousMujocoController
 from everest_g1.autonomy.planning import (
+    AcousticPlanningObservation,
     EnvironmentProfile,
     GeminiRoutePlanner,
     PlannerError,
@@ -47,6 +48,25 @@ def test_offline_plan_is_explicit_and_selects_lowest_safe_risk() -> None:
     assert planner.provider == "offline-deterministic"
     assert selected.hard_safe
     assert selected.route_id == "scan-sheltered-low-grade"
+
+
+def test_acoustic_context_is_visible_to_gemini_but_coarse_range_is_telemetry_only() -> None:
+    options = build_route_options("scan", EnvironmentProfile())
+    observation = AcousticPlanningObservation(
+        bearing_rad=0.42,
+        confidence=0.83,
+        coarse_range_m=2.7,
+    )
+    prompt = GeminiRoutePlanner._prompt(
+        "scan",
+        options,
+        acoustic_observation=observation,
+    )
+
+    assert '"bearing_rad_body_frame":0.42' in prompt
+    assert '"confidence":0.83' in prompt
+    assert '"coarse_range_m_telemetry_only":2.7' in prompt
+    assert "never as a stop/call gate" in prompt
 
 
 def test_live_planner_requires_key_and_camera() -> None:
@@ -156,3 +176,12 @@ def test_autonomy_commands_remain_inside_conservative_bounds(tmp_path: Path) -> 
     assert abs(command[0]) <= 0.18
     assert abs(command[1]) <= 0.10
     assert abs(command[2]) <= 0.25
+
+
+def test_all_four_mac_launchers_enable_spatial_audio_by_default() -> None:
+    root = Path(__file__).resolve().parents[1]
+    common = (root / "autonomy" / "_common.sh").read_text()
+    assert "audio_args=(--spatial-audio --acoustic-localization)" in common
+    for name in ("controller", "rescue", "carry", "scan"):
+        launcher = (root / "autonomy" / f"run_{name}.sh").read_text()
+        assert '"${audio_args[@]}"' in launcher

@@ -11,6 +11,7 @@ from everest_g1.autonomy.planning import AutonomyMode, GeminiRoutePlanner, Route
 from everest_g1.beacon import JsonlAuditLog
 from everest_g1.mujoco import MujocoRescueController, yaw_from_wxyz
 from everest_g1.rescue import ApproachLimits
+from everest_g1.spatial_audio import SpatialAudioSettings
 from summit_sentinel.simulation import SummitSentinelEnv
 
 
@@ -28,6 +29,7 @@ class AutonomousMujocoController:
         simulation_id: str = "",
         audit_log: Path = Path("runtime/everest-g1-events.jsonl"),
         planning_frame_bytes: int = 0,
+        spatial_audio: SpatialAudioSettings | None = None,
     ) -> None:
         if not route.hard_safe:
             raise ValueError("cannot execute a route outside the local safety envelope")
@@ -63,6 +65,7 @@ class AutonomousMujocoController:
                 arm_live_call=arm_live_call,
                 simulation_id=simulation_id,
                 audit_log=audit_log,
+                spatial_audio=spatial_audio,
             )
             if mode in {"rescue", "carry"}
             else None
@@ -88,6 +91,17 @@ class AutonomousMujocoController:
             observations=planner.last_observations,
             front_camera_bytes=self.planning_frame_bytes,
             selected_route=route.prompt_payload(),
+            acoustic_observation=(
+                {
+                    "bearing_rad": planner.last_acoustic_observation.bearing_rad,
+                    "confidence": planner.last_acoustic_observation.confidence,
+                    "coarse_range_m_telemetry_only": (
+                        planner.last_acoustic_observation.coarse_range_m
+                    ),
+                }
+                if planner.last_acoustic_observation is not None
+                else None
+            ),
         )
 
     @property

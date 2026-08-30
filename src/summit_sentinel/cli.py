@@ -15,12 +15,14 @@ import numpy as np
 
 from everest_g1.autonomy import (
     GEMINI_ROBOTICS_MODEL,
+    AcousticPlanningObservation,
     AutonomousMujocoController,
     EnvironmentProfile,
     GeminiRoutePlanner,
     build_route_options,
 )
-from everest_g1.mujoco import MujocoRescueController
+from everest_g1.mujoco import MujocoAudioMonitor, MujocoRescueController, yaw_from_wxyz
+from everest_g1.spatial_audio import AcousticBeaconSensor, SpatialAudioSettings
 from summit_sentinel.agent_runtime import (
     BridgeRuntimeWorker,
     RuntimeCommandApplier,
@@ -114,6 +116,25 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("runtime/everest-g1-events.jsonl"),
         help="redacted rescue event JSONL",
+    )
+    parser.add_argument(
+        "--spatial-audio",
+        action="store_true",
+        help="render a stereo casualty-bearing cue for the active mode to a WAV file",
+    )
+    parser.add_argument(
+        "--spatial-audio-out",
+        type=Path,
+        default=Path("runtime/everest-g1-rescue.wav"),
+        help="stereo cue destination; the simulation id is appended to the stem",
+    )
+    parser.add_argument(
+        "--acoustic-localization",
+        action="store_true",
+        help=(
+            "enable the simulated torso microphone array; it steers only rescue approach, "
+            "and is passive context in controller/scan modes"
+        ),
     )
     parser.add_argument("--no-policy", action="store_true", help="use stationary PD hold fallback")
     parser.add_argument("--no-auto-reset", action="store_true")
@@ -269,6 +290,11 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         else None
     )
     safety_warning: str | None = None
+    audio_settings = SpatialAudioSettings(
+        acoustic_localization=args.acoustic_localization,
+        render_cue=args.spatial_audio,
+        output_path=args.spatial_audio_out,
+    )
     rescue = (
         MujocoRescueController(
             person_xy=env.rescue_target_xy,
@@ -276,6 +302,7 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             arm_live_call=args.arm_live_call,
             simulation_id=args.simulation_id or "",
             audit_log=args.audit_log,
+            spatial_audio=audio_settings,
         )
         if args.rescue
         else None
@@ -292,8 +319,26 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             model=args.gemini_model,
             offline=args.offline_plan,
         )
+        acoustic_observation = None
+        if args.acoustic_localization:
+            yaw = yaw_from_wxyz(root[3:7])
+            estimate = AcousticBeaconSensor().sense(
+                robot_xy=(float(root[0]), float(root[1])),
+                robot_yaw_rad=yaw,
+                source_xy=env.rescue_target_xy,
+            )
+            acoustic_observation = AcousticPlanningObservation(
+                bearing_rad=estimate.bearing_rad,
+                confidence=estimate.confidence,
+                coarse_range_m=estimate.range_m,
+            )
         planning_frame = None if args.offline_plan else env.front_camera_jpeg()
-        route = planner.select(args.autonomy, options, image_jpeg=planning_frame)
+        route = planner.select(
+            args.autonomy,
+            options,
+            image_jpeg=planning_frame,
+            acoustic_observation=acoustic_observation,
+        )
         autonomy = AutonomousMujocoController(
             env=env,
             mode=args.autonomy,
@@ -303,7 +348,20 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             simulation_id=args.simulation_id or "",
             audit_log=args.audit_log,
             planning_frame_bytes=len(planning_frame) if planning_frame is not None else 0,
+            spatial_audio=audio_settings,
         )
+    passive_audio = (
+        MujocoAudioMonitor(
+            person_xy=env.rescue_target_xy,
+            control_dt_s=config.simulation.timestep,
+            settings=audio_settings,
+            simulation_id=args.simulation_id or "",
+            audit_log=args.audit_log,
+            mode="controller" if args.joystick else "gemini-scan",
+        )
+        if audio_settings.enabled and (args.joystick or args.autonomy == "scan")
+        else None
+    )
 
     def advance() -> tuple[object, bool]:
         nonlocal falls, safety_warning
@@ -345,6 +403,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             )
         if autonomy is not None and not env.emergency_stop_latched:
             effective_command = autonomy.update(env)
+        if passive_audio is not None and not env.emergency_stop_latched:
+            passive_audio.update(env.data.joint("floating_base_joint").qpos.copy())
         result = env.step(effective_command)
         falls += int(result.fell)
         if result.reset and bridge_worker is not None and command_applier is not None:
@@ -394,6 +454,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             rescue.close()
         if autonomy is not None:
             autonomy.close()
+        if passive_audio is not None:
+            passive_audio.close()
         if bridge_worker is not None:
             rejected_ids = bridge_worker.discard_commands()
             if rejected_ids:
@@ -406,6 +468,14 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             bridge_worker.close()
 
     root = env.data.joint("floating_base_joint").qpos
+    rescue_audio = (
+        rescue
+        if rescue is not None
+        else autonomy.rescue
+        if autonomy is not None and autonomy.rescue is not None
+        else None
+    )
+    audio_source = rescue_audio if rescue_audio is not None else passive_audio
     return {
         "policy_mode": env.policy_mode,
         "policy_warning": env.policy_warning,
@@ -473,6 +543,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             if rescue is not None
             else autonomy.rescue.simulation_id
             if autonomy is not None and autonomy.rescue is not None
+            else audio_source.simulation_id
+            if audio_source is not None
             else None
         ),
         "autonomy_mode": args.autonomy,
@@ -485,6 +557,22 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         "autonomy_call_submitted": (autonomy.call_submitted if autonomy is not None else False),
         "autonomy_planning_camera_bytes": (
             autonomy.planning_frame_bytes if autonomy is not None else 0
+        ),
+        "acoustic_localization": (
+            audio_source is not None
+            and audio_source.audio is not None
+            and audio_source.audio.sensor is not None
+        ),
+        "spatial_audio_path": (
+            str(audio_source.spatial_audio_path)
+            if audio_source is not None and audio_source.spatial_audio_path is not None
+            else None
+        ),
+        "spatial_audio_motion_authority": (
+            audio_source is rescue_audio
+            and rescue_audio is not None
+            and rescue_audio.audio is not None
+            and rescue_audio.audio.sensor is not None
         ),
     }
 
@@ -505,6 +593,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--offline-plan requires --autonomy")
     if args.arm_live_call and not (args.rescue or args.autonomy in {"rescue", "carry"}):
         parser.error("--arm-live-call requires --rescue or rescue/carry autonomy")
+    audio_mode = args.rescue or args.autonomy is not None or args.joystick
+    if (args.spatial_audio or args.acoustic_localization) and not audio_mode:
+        parser.error(
+            "--spatial-audio and --acoustic-localization require controller, rescue, carry, "
+            "or scan mode"
+        )
     if args.list_joysticks:
         devices = list_joysticks()
         if not devices:
@@ -542,6 +636,9 @@ def main(argv: list[str] | None = None) -> int:
             f"physics={summary['physics_hz']:.0f} Hz policy={summary['policy_hz']:.0f} Hz "
             f"simulated={summary['simulated_seconds']:.3f} s falls={summary['falls']}"
         )
+        if summary["spatial_audio_path"] is not None:
+            print(f"spatial_audio={summary['spatial_audio_path']}")
+            print(f"play_on_mac=afplay {shlex.quote(str(summary['spatial_audio_path']))}")
     return 0
 
 

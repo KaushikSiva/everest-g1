@@ -16,5 +16,10 @@ The four launchers are:
    effective friction, and distance for complete survey routes. The G1 patrols
    the selected route in both directions.
 
+All four launchers enable the simulated torso microphone array and write a
+stereo casualty-bearing WAV at shutdown. Audio steers only the final rescue or
+carry approach. It is passive in controller and scan modes. Set
+`EVEREST_DISABLE_SPATIAL_AUDIO=1` for a deliberately silent run.
+
 See [`docs/MAC_MUJOCO_MODES.md`](../docs/MAC_MUJOCO_MODES.md) for setup,
 BeaconCall arming, factor overrides, and exact commands.

@@ -1,4 +1,4 @@
-.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mode-controller mode-gemini-rescue mode-gemini-carry mode-gemini-scan mcp rescue-dry brev-setup brev-run isaac-setup isaac-run groot-setup sonic-setup verify
+.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mujoco-rescue-audio mode-controller mode-gemini-rescue mode-gemini-carry mode-gemini-scan mcp rescue-dry rescue-audio brev-setup brev-run isaac-setup isaac-run groot-setup sonic-setup verify
 
 SIM_LAUNCHER := $(if $(filter Darwin,$(shell uname -s)),mjpython,python)
 
@@ -63,3 +63,9 @@ verify:
 	uv run ruff check .
 	uv run ruff format --check .
 	uv run pytest
+
+rescue-audio:
+	uv run everest-g1 dry-run --spatial-audio --acoustic-localization
+
+mujoco-rescue-audio:
+	uv run $(SIM_LAUNCHER) -m summit_sentinel --mode viewer --seconds 60 --rescue --spatial-audio --acoustic-localization

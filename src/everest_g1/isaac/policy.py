@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import atexit
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import gymnasium as gym
@@ -21,7 +21,14 @@ from everest_g1.beacon import (
 )
 from everest_g1.isaac.camera import isaac_front_camera_jpeg
 from everest_g1.models import RescueObservation
-from everest_g1.rescue import ApproachLimits, ProximityLatch, approach_person
+from everest_g1.rescue import (
+    ApproachLimits,
+    ProximityLatch,
+    approach_person,
+    body_bearing,
+    target_from_bearing,
+)
+from everest_g1.spatial_audio import RescueAudio, SpatialAudioSettings
 
 _WBC_COMMAND_DIM = 7  # navigation xyz, base height, torso rpy
 
@@ -42,6 +49,9 @@ class EverestApproachPolicyCfg(PolicyCfg):
     simulation_id: str = ""
     audit_log: str = "runtime/everest-g1-events.jsonl"
     arm_live_call: bool = False
+    acoustic_localization: bool = False
+    spatial_audio: bool = False
+    spatial_audio_out: str = "runtime/everest-g1-rescue.wav"
 
 
 @register_policy
@@ -65,10 +75,18 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
         self._disarmed_event_written = False
         self.front_camera_status = "not_requested"
         self.front_camera_bytes = 0
+        self._latch_cued = False
+        audio_settings = SpatialAudioSettings(
+            acoustic_localization=config.acoustic_localization,
+            render_cue=config.spatial_audio,
+            output_path=Path(config.spatial_audio_out),
+        )
+        self.audio = RescueAudio(audio_settings) if audio_settings.enabled else None
         if config.arm_live_call:
             settings = BeaconSettings.from_env(arm_requested=True)
             settings.validate()
             self.call_worker = BeaconCallWorker(settings, self.audit_log)
+        if self.call_worker is not None or self.audio is not None:
             atexit.register(self.close)
         self.audit_log.write(
             "simulation_started",
@@ -76,6 +94,13 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
             simulation_id=self.simulation_id,
             live_call_armed=self.call_worker is not None,
         )
+        if self.audio is not None:
+            self.audit_log.write(
+                "spatial_audio_started",
+                simulation_id=self.simulation_id,
+                acoustic_localization=self.audio.sensor is not None,
+                cue_rendered=self.audio.renderer is not None,
+            )
 
     def get_action(self, env: gym.Env, observation: GymSpacesDict) -> torch.Tensor:
         if env.action_space.shape[0] != 1:
@@ -85,14 +110,48 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
         root_xy = robot.data.root_pos_w[0, :2]
         root_quat = robot.data.root_quat_w[0]  # Isaac Lab uses w, x, y, z.
         yaw = _yaw_from_wxyz(root_quat)
-        command = approach_person(
-            robot_xy=(float(root_xy[0].item()), float(root_xy[1].item())),
+        robot_xy = (float(root_xy[0].item()), float(root_xy[1].item()))
+        person_xy = (self.config.person_x_m, self.config.person_y_m)
+
+        # Audio may steer the approach. The range gate that stops the robot and
+        # releases a BeaconCall always uses the observed geometry.
+        gate = approach_person(
+            robot_xy=robot_xy,
             robot_yaw_rad=yaw,
-            person_xy=(self.config.person_x_m, self.config.person_y_m),
+            person_xy=person_xy,
             limits=self.limits,
             reached=self.latch.latched,
         )
+        command = gate
+        target_xy = person_xy
+        if self.audio is not None and not gate.reached:
+            estimate = self.audio.observe(robot_xy=robot_xy, robot_yaw_rad=yaw, source_xy=person_xy)
+            if estimate is not None:
+                target_xy = target_from_bearing(
+                    robot_xy=robot_xy,
+                    robot_yaw_rad=yaw,
+                    bearing_rad=estimate.bearing_rad,
+                    surface_distance_m=gate.surface_distance_m,
+                    limits=self.limits,
+                )
+                steer = approach_person(
+                    robot_xy=robot_xy,
+                    robot_yaw_rad=yaw,
+                    person_xy=target_xy,
+                    limits=self.limits,
+                )
+                command = replace(
+                    steer,
+                    surface_distance_m=gate.surface_distance_m,
+                    reached=gate.reached,
+                )
         reached = self.latch.update(command.surface_distance_m, self.config.control_dt_s)
+        if self.audio is not None:
+            self.audio.cue(
+                dt_s=self.config.control_dt_s,
+                bearing_rad=body_bearing(robot_xy=robot_xy, robot_yaw_rad=yaw, target_xy=target_xy),
+                distance_m=command.surface_distance_m,
+            )
 
         action = torch.zeros(env.action_space.shape, device=env.unwrapped.device)
         joint_count = action.shape[-1] - _WBC_COMMAND_DIM
@@ -111,6 +170,10 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
 
         if reached:
             action[:, -7:-4] = 0.0
+            if not self._latch_cued:
+                self._latch_cued = True
+                if self.audio is not None:
+                    self.audio.mark_proximity_latched()
             image_jpeg = None
             if self.call_worker is not None and not self.call_worker.submitted:
                 try:
@@ -137,7 +200,8 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
                 image_jpeg=image_jpeg,
             )
             if self.call_worker is not None:
-                self.call_worker.submit_once(observation_facts)
+                if self.call_worker.submit_once(observation_facts) and self.audio is not None:
+                    self.audio.mark_call_submitted()
             elif not self._disarmed_event_written:
                 self.audit_log.write(
                     "proximity_reached_call_disarmed",
@@ -151,10 +215,21 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
         del env_ids
         # Reset proximity across episodes, but never re-arm the one-call-per-process latch.
         self.latch.reset()
+        if self.audio is not None:
+            self.audio.reset()
 
     def close(self) -> None:
         if self.call_worker is not None:
             self.call_worker.close(timeout_s=50.0)
+        if self.audio is not None:
+            summary = self.audio.close(self.simulation_id)
+            self.audio = None
+            if summary is not None:
+                self.audit_log.write(
+                    "spatial_audio_written",
+                    simulation_id=self.simulation_id,
+                    **summary,
+                )
 
 
 def _yaw_from_wxyz(quaternion: torch.Tensor) -> float:
