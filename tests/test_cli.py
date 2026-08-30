@@ -50,6 +50,14 @@ def test_macos_viewer_error_prints_exact_mjpython_command(
     )
 
 
+def test_live_call_flag_requires_rescue_mode(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        cli.main(["--mode", "headless", "--seconds", "0", "--arm-live-call"])
+
+    assert error.value.code == 2
+    assert "--arm-live-call requires --rescue" in capsys.readouterr().err
+
+
 def test_estop_latency_is_zero_intervening_mocked_physics_steps() -> None:
     events: list[tuple[str, int]] = []
     env = Mock(spec=SummitSentinelEnv)

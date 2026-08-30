@@ -35,7 +35,7 @@ the robot simulation/control stack, not sponsor claims made by this repository.
 - Two-part live-call arming and redacted JSONL audit events.
 - Isaac Lab-Arena on Brev for interactive work and Modal probes for headless jobs.
 - Pinned GR00T N1.7/SONIC training lane using `UNITREE_G1_SONIC`.
-- The original MuJoCo/DualSense demo as a local fallback under `summit_sentinel`.
+- The same approach, stop, dwell, and BeaconCall flow in local MuJoCo on macOS.
 
 This repository does **not** claim a zero simulation-to-reality gap. It pins
 software, bounds commands, logs measurements, and separates control from cloud
@@ -48,7 +48,7 @@ this release gate.
 Bright Data (optional, async context only)
                   |
                   v
-Isaac scene -> bounded 50 Hz G1 policy -> proximity dwell -> robot stops
+Isaac/MuJoCo scene -> bounded G1 policy -> proximity dwell -> robot stops
                                                      |
                                                      v one-shot worker
                                                BeaconCall API
@@ -64,8 +64,8 @@ authority model.
 
 ## Local verification
 
-The Isaac packages are Linux/GPU-only, but the safety, trigger, call gate, and
-legacy MuJoCo tests run locally:
+The Isaac packages are Linux/GPU-only, but the complete MuJoCo rescue behavior,
+safety trigger, and call gate run locally:
 
 ```bash
 uv sync --extra dev
@@ -75,6 +75,41 @@ make verify
 
 The dry run must finish with `"reached": true` and
 `"live_call_armed": false`. It never places a call.
+
+## MuJoCo on macOS: same rescue behavior
+
+Run the G1, prone-person proxy, approach controller, stop, and dwell locally:
+
+```bash
+make mujoco-rescue
+```
+
+On macOS this launches MuJoCo through `mjpython`; on Linux it uses normal
+Python. The default is disarmed. A fast non-visual acceptance run is:
+
+```bash
+make mujoco-rescue-headless
+```
+
+Its JSON must report `"rescue_reached": true`, `"falls": 0`, and
+`"call_submitted": false`.
+
+To exercise the real LiveKit/Twilio handoff, first run BeaconCall with its
+server-side destination and credentials configured. Then arm both gates in a
+fresh shell and launch MuJoCo:
+
+```bash
+export BEACON_API_URL=https://YOUR-BEACON-HOST
+read -rsp 'Beacon API token: ' BEACON_API_TOKEN; export BEACON_API_TOKEN; echo
+export EVEREST_ARM_LIVE_CALL=ARM-LIVE-CALL
+uv run mjpython -m summit_sentinel --mode viewer --seconds 60 \
+  --rescue --arm-live-call
+```
+
+MuJoCo submits the same authenticated `/api/incidents/outbound-call` request as
+Isaac. BeaconCall—not the simulator—owns the phone number, LiveKit keys, Twilio
+SIP trunk, wording, acknowledgment wait, and hangup. Unset the arming variables
+afterward.
 
 ## Brev: interactive Isaac Lab-Arena
 
@@ -181,17 +216,18 @@ BeaconCall constructs a deterministic statement that this is a simulation,
 states that responsiveness and vital signs are unknown, waits for an
 acknowledgment, and terminates the room.
 
-## Legacy MuJoCo fallback
+## General MuJoCo controls
 
-The original locally runnable simulator remains available:
+The locally runnable joystick and telemetry modes remain available:
 
 ```bash
 make sim-headless
 make sim
 ```
 
-It is useful for controller/UI work without an NVIDIA GPU. Passing this fallback
-does not replace the Isaac commissioning gate.
+They are useful for controller/UI work without an NVIDIA GPU. The rescue mode
+matches the scenario behavior and call contract, but passing MuJoCo still does
+not replace the Isaac commissioning gate.
 
 ## Safety boundaries
 

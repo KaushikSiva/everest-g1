@@ -5,10 +5,10 @@
 ```text
 CONTROL PLANE (50 Hz, local GPU process)
 
-Isaac physics -> G1 state -> bounded approach -> proximity dwell -> zero velocity
-                                  |                    |
-                                  |                    +-> immutable reached latch
-                                  +-> AGILE WBC action
+Isaac/MuJoCo physics -> G1 state -> bounded approach -> proximity dwell -> zero velocity
+                                        |                    |
+                                        |                    +-> immutable reached latch
+                                        +-> local locomotion policy action
 
 NETWORK PLANE (non-real-time)
 
@@ -54,10 +54,16 @@ happen outside the robot policy. BeaconCall owns:
 | --- | --- | --- | --- |
 | Arena commissioning | Verify scene, bounds, stop, and trigger | G1 AGILE decoupled WBC | 3.0.0 beta 2 |
 | GR00T + SONIC | Learned whole-body task policy after data/checkpoint exists | GR00T N1.7 latent actions decoded by GEAR-SONIC | 2.3.2 |
-| MuJoCo fallback | Local UI/control regression | vendored Unitree policy | N/A |
+| MuJoCo rescue | Mac-local scenario and call integration | vendored Unitree locomotion policy | N/A |
 
 The lanes share scenario intent and measured acceptance criteria, not a Python
 environment or an assertion of numerical equivalence.
+
+Both simulation lanes use the dependency-free `ApproachLimits`,
+`ProximityLatch`, `RescueObservation`, and asynchronous `BeaconCallWorker`.
+MuJoCo reads the named `downed_person_target` site, computes the robot yaw from
+its free-joint quaternion, and replaces manual velocity input only while
+`--rescue` is active. Local joystick emergency-stop handling still runs first.
 
 ## Acceptance evidence
 

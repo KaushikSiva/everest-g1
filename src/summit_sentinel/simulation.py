@@ -132,6 +132,13 @@ class SummitSentinelEnv:
             if int(joint.id) < 0 or int(actuator.id) != index:
                 raise ValueError(f"joint/actuator contract mismatch for {joint_name}")
         self.model.geom("everest_terrain")
+        self.model.body("downed_person")
+        self.model.site("downed_person_target")
+
+    @property
+    def rescue_target_xy(self) -> tuple[float, float]:
+        position = self.data.site("downed_person_target").xpos
+        return float(position[0]), float(position[1])
 
     def _joint_state(self) -> tuple[np.ndarray, np.ndarray]:
         q = np.asarray(

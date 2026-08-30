@@ -17,14 +17,15 @@ logged while the G1 remains stopped.
 
 A call requires all of the following:
 
-- the launch command includes `--arm-live-call` (wrapper) or
+- the launch command includes `--arm-live-call` (wrapper or MuJoCo) or
   `--arm_live_call` (Arena policy option);
 - `EVEREST_ARM_LIVE_CALL` equals exactly `ARM-LIVE-CALL`;
 - `BEACON_API_URL` uses HTTP(S);
 - `BEACON_API_TOKEN` is non-empty;
 - proximity remains within 0.15 m for 0.25 continuous seconds.
 
-The wrapper prompts immediately before launch. One process submits at most one
+The Isaac wrapper prompts immediately before launch. MuJoCo requires its CLI
+flag plus the same exact environment value. One process submits at most one
 incident. BeaconCall independently authenticates and idempotently records it.
 
 The destination number, LiveKit keys, SIP trunk ID, and Twilio credentials

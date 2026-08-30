@@ -1,4 +1,4 @@
-.PHONY: setup sim sim-macos sim-linux sim-headless mcp rescue-dry brev-setup brev-run verify
+.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mcp rescue-dry brev-setup brev-run verify
 
 SIM_LAUNCHER := $(if $(filter Darwin,$(shell uname -s)),mjpython,python)
 
@@ -16,6 +16,12 @@ sim-linux:
 
 sim-headless:
 	uv run summit-sentinel --mode headless --seconds 600 --bridge-db runtime/summit.db --telemetry-hz 15 --json
+
+mujoco-rescue:
+	uv run $(SIM_LAUNCHER) -m summit_sentinel --mode viewer --seconds 60 --rescue
+
+mujoco-rescue-headless:
+	uv run summit-sentinel --mode headless --seconds 12 --rescue --json
 
 mcp:
 	uv run summit-sentinel-mcp --bridge-db runtime/summit.db --port 8000

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
+from everest_g1.mujoco import MujocoRescueController
 from summit_sentinel.agent_runtime import (
     BridgeRuntimeWorker,
     RuntimeCommandApplier,
@@ -70,6 +71,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vx", type=float, default=0.0, help="fixed forward velocity command")
     parser.add_argument("--vy", type=float, default=0.0, help="fixed lateral velocity command")
     parser.add_argument("--yaw", type=float, default=0.0, help="fixed yaw-rate command")
+    parser.add_argument(
+        "--rescue",
+        action="store_true",
+        help="approach the prone person and run the proximity/call gate",
+    )
+    parser.add_argument(
+        "--arm-live-call",
+        action="store_true",
+        help="allow one BeaconCall after proximity (also requires environment arming)",
+    )
+    parser.add_argument("--simulation-id", help="optional idempotent rescue run identifier")
+    parser.add_argument(
+        "--audit-log",
+        type=Path,
+        default=Path("runtime/everest-g1-events.jsonl"),
+        help="redacted rescue event JSONL",
+    )
     parser.add_argument("--no-policy", action="store_true", help="use stationary PD hold fallback")
     parser.add_argument("--no-auto-reset", action="store_true")
     parser.add_argument(
@@ -209,6 +227,17 @@ def _run_with_source(args, config, source) -> dict[str, object]:
     if bridge_worker is not None:
         bridge_worker.start()
     safety_warning: str | None = None
+    rescue = (
+        MujocoRescueController(
+            person_xy=env.rescue_target_xy,
+            control_dt_s=config.simulation.timestep,
+            arm_live_call=args.arm_live_call,
+            simulation_id=args.simulation_id or "",
+            audit_log=args.audit_log,
+        )
+        if args.rescue
+        else None
+    )
 
     def advance() -> tuple[object, bool]:
         nonlocal falls, safety_warning
@@ -243,6 +272,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         effective_command = operator.command
         if not args.joystick and agent_command is not None:
             effective_command = agent_command
+        if rescue is not None and not env.emergency_stop_latched:
+            effective_command = rescue.update(env.data.joint("floating_base_joint").qpos.copy())
         result = env.step(effective_command)
         falls += int(result.fell)
         if result.reset and bridge_worker is not None and command_applier is not None:
@@ -286,6 +317,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
                     if remaining > 0:
                         time.sleep(remaining)
     finally:
+        if rescue is not None:
+            rescue.close()
         if bridge_worker is not None:
             rejected_ids = bridge_worker.discard_commands()
             if rejected_ids:
@@ -315,6 +348,14 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         "telemetry_frames": bridge_worker.records_written if bridge_worker is not None else 0,
         "bridge_background_failure": bridge_worker.failure if bridge_worker is not None else None,
         "bridge_db": str(bridge.path) if bridge is not None else None,
+        "rescue_enabled": rescue is not None,
+        "rescue_reached": rescue.latch.latched if rescue is not None else False,
+        "rescue_distance_m": (
+            rescue.last_command.surface_distance_m if rescue is not None else None
+        ),
+        "live_call_armed": rescue.live_call_armed if rescue is not None else False,
+        "call_submitted": rescue.call_submitted if rescue is not None else False,
+        "simulation_id": rescue.simulation_id if rescue is not None else None,
     }
 
 
@@ -326,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--seconds must be non-negative")
     if not 10.0 <= args.telemetry_hz <= 20.0:
         parser.error("--telemetry-hz must be between 10 and 20")
+    if args.arm_live_call and not args.rescue:
+        parser.error("--arm-live-call requires --rescue")
     if args.list_joysticks:
         devices = list_joysticks()
         if not devices:

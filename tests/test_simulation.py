@@ -17,6 +17,9 @@ def test_model_compiles_with_named_g1_contract() -> None:
     assert env.policy_hz == 50.0
     assert env.model.joint("floating_base_joint").name == "floating_base_joint"
     assert env.model.geom("everest_terrain").name == "everest_terrain"
+    assert env.model.body("downed_person").name == "downed_person"
+    assert env.model.site("downed_person_target").name == "downed_person_target"
+    np.testing.assert_allclose(env.rescue_target_xy, [1.35, 0.30])
 
 
 def test_terrain_visual_has_no_checker_grid_and_preserves_physics_contract() -> None:
@@ -32,6 +35,14 @@ def test_terrain_visual_has_no_checker_grid_and_preserves_physics_contract() -> 
     assert terrain.get("hfield") == "everest_compressed"
     assert terrain.get("friction") == "0.9 0.01 0.001"
     assert terrain.get("condim") == "4"
+
+    person = scene.find("./worldbody/body[@name='downed_person']")
+    assert person is not None
+    assert person.find("./site[@name='downed_person_target']") is not None
+    person_geoms = person.findall("./geom")
+    assert len(person_geoms) == 6
+    assert all(geom.get("contype") == "0" for geom in person_geoms)
+    assert all(geom.get("conaffinity") == "0" for geom in person_geoms)
 
 
 def test_short_headless_hold_stability_smoke() -> None:
