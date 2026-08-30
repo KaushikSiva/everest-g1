@@ -60,9 +60,16 @@ def test_mujoco_rescue_armed_path_submits_exactly_one_beacon_incident(
         simulation_id="mujoco-live-test",
     )
     qpos = np.asarray([0.0, 0.0, 0.9, 1.0, 0.0, 0.0, 0.0])
+    jpeg = b"\xff\xd8front-camera-frame\xff\xd9"
+    captures = 0
 
-    controller.update(qpos)
-    controller.update(qpos)
+    def capture() -> bytes:
+        nonlocal captures
+        captures += 1
+        return jpeg
+
+    controller.update(qpos, image_supplier=capture)
+    controller.update(qpos, image_supplier=capture)
     controller.close()
 
     assert controller.call_submitted
@@ -70,6 +77,48 @@ def test_mujoco_rescue_armed_path_submits_exactly_one_beacon_incident(
     assert calls[0].simulation_id == "mujoco-live-test"
     assert calls[0].distance_m == pytest.approx(0.1)
     assert calls[0].observed_state == "motionless_adult_in_snow"
+    assert calls[0].camera_name == "G1-FRONT-CAMERA"
+    assert calls[0].image_jpeg == jpeg
+    assert captures == 1
+    assert controller.front_camera_status == "captured"
+    assert controller.front_camera_bytes == len(jpeg)
+
+
+def test_mujoco_rescue_calls_with_base_facts_when_camera_capture_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import everest_g1.beacon as beacon_module
+
+    monkeypatch.setenv("EVEREST_ARM_LIVE_CALL", ARM_VALUE)
+    monkeypatch.setenv("BEACON_API_URL", "https://beacon.test")
+    monkeypatch.setenv("BEACON_API_TOKEN", "test-token")
+    calls: list[RescueObservation] = []
+
+    def fake_post(_settings: BeaconSettings, observation: RescueObservation) -> dict[str, object]:
+        calls.append(observation)
+        return {"incident_id": "inc-camera-fallback", "status": "queued"}
+
+    def capture_failure() -> bytes:
+        raise RuntimeError("renderer unavailable")
+
+    monkeypatch.setattr(beacon_module, "post_incident", fake_post)
+    controller = MujocoRescueController(
+        person_xy=(0.65, 0.0),
+        control_dt_s=0.25,
+        arm_live_call=True,
+        audit_log=tmp_path / "events.jsonl",
+        simulation_id="mujoco-camera-fallback",
+    )
+    qpos = np.asarray([0.0, 0.0, 0.9, 1.0, 0.0, 0.0, 0.0])
+
+    controller.update(qpos, image_supplier=capture_failure)
+    controller.close()
+
+    assert len(calls) == 1
+    assert calls[0].image_jpeg is None
+    assert controller.front_camera_status == "capture_failed"
+    records = [json.loads(line) for line in (tmp_path / "events.jsonl").read_text().splitlines()]
+    assert "front_camera_capture_failed" in [record["event"] for record in records]
 
 
 def test_mujoco_yaw_and_pose_validation(tmp_path: Path) -> None:

@@ -30,6 +30,14 @@ Everest G1's `summit_scene.xml`, terrain generator, safety checks, CLI, and
 control adapters are modifications/additions and are not supplied or endorsed
 by Unitree Robotics.
 
+## Local Robot Nurse casualty asset
+
+The detailed MuJoCo snow casualty is an OBJ conversion of the user-provided
+`boy.glb` previously prepared for the Robot Nurse demo. Its source and converted
+mesh remain subject to the source asset's own terms; confirm those terms before
+redistributing the OBJ or albedo texture. The conversion does not affect the
+casualty's non-colliding safety proxy or proximity-trigger semantics.
+
 ## Other runtime libraries
 
 MuJoCo, PyTorch, NumPy, PyYAML, and pygame-ce remain external dependencies. See

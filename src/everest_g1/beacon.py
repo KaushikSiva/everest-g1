@@ -29,7 +29,7 @@ class BeaconSettings:
     api_url: str
     api_token: str
     armed: bool
-    timeout_s: float = 15.0
+    timeout_s: float = 45.0
 
     @classmethod
     def from_env(cls, *, arm_requested: bool) -> BeaconSettings:
@@ -131,11 +131,13 @@ class BeaconCallWorker:
             return
         try:
             result = post_incident(self.settings, observation)
+            incident = result.get("incident")
+            incident_fields = incident if isinstance(incident, dict) else {}
             self.audit_log.write(
                 "call_dispatched",
                 simulation_id=observation.simulation_id,
-                incident_id=result.get("incident_id"),
-                status=result.get("status"),
+                incident_id=incident_fields.get("id", result.get("incident_id")),
+                status=incident_fields.get("status", result.get("status")),
             )
         except Exception as exc:  # The control loop must survive network/service failures.
             self.audit_log.write(

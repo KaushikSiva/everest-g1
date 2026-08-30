@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -20,6 +21,10 @@ from summit_sentinel.control import (
 from summit_sentinel.terrain import TERRAIN_SEED, ensure_terrain, plateau_world_height
 
 ROBOT_NOMINAL_BASE_HEIGHT = 0.793
+FRONT_CAMERA_NAME = "g1_front_camera"
+FRONT_CAMERA_WIDTH = 640
+FRONT_CAMERA_HEIGHT = 480
+MAX_FRONT_CAMERA_JPEG_BYTES = 2_000_000
 StopAuthority = Literal["local", "supervisory", "fault"]
 
 
@@ -134,11 +139,44 @@ class SummitSentinelEnv:
         self.model.geom("everest_terrain")
         self.model.body("downed_person")
         self.model.site("downed_person_target")
+        self.model.camera(FRONT_CAMERA_NAME)
 
     @property
     def rescue_target_xy(self) -> tuple[float, float]:
         position = self.data.site("downed_person_target").xpos
         return float(position[0]), float(position[1])
+
+    def front_camera_jpeg(
+        self,
+        *,
+        width: int = FRONT_CAMERA_WIDTH,
+        height: int = FRONT_CAMERA_HEIGHT,
+    ) -> bytes:
+        """Render one robot-relative RGB frame and encode it as a bounded JPEG."""
+
+        if not 64 <= width <= 1920 or not 64 <= height <= 1080:
+            raise ValueError("front-camera dimensions are outside the supported range")
+
+        import pygame
+
+        try:
+            with mujoco.Renderer(self.model, height=height, width=width) as renderer:
+                renderer.update_scene(self.data, camera=FRONT_CAMERA_NAME)
+                rgb = renderer.render()
+        except Exception as error:
+            raise RuntimeError(f"front-camera render failed: {type(error).__name__}") from error
+
+        surface = pygame.surfarray.make_surface(np.ascontiguousarray(rgb.swapaxes(0, 1)))
+        encoded = io.BytesIO()
+        pygame.image.save(surface, encoded, "g1-front-camera.jpg")
+        jpeg = encoded.getvalue()
+        if (
+            not jpeg.startswith(b"\xff\xd8")
+            or not jpeg.endswith(b"\xff\xd9")
+            or len(jpeg) > MAX_FRONT_CAMERA_JPEG_BYTES
+        ):
+            raise RuntimeError("front-camera JPEG encoding failed or exceeded 2 MB")
+        return jpeg
 
     def _joint_state(self) -> tuple[np.ndarray, np.ndarray]:
         q = np.asarray(

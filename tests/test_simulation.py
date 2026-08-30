@@ -5,7 +5,7 @@ import pytest
 
 import summit_sentinel.simulation as simulation_module
 from summit_sentinel.config import SCENE_PATH
-from summit_sentinel.simulation import SummitSentinelEnv
+from summit_sentinel.simulation import FRONT_CAMERA_NAME, SummitSentinelEnv
 
 
 def test_model_compiles_with_named_g1_contract() -> None:
@@ -19,6 +19,7 @@ def test_model_compiles_with_named_g1_contract() -> None:
     assert env.model.geom("everest_terrain").name == "everest_terrain"
     assert env.model.body("downed_person").name == "downed_person"
     assert env.model.site("downed_person_target").name == "downed_person_target"
+    assert env.model.camera(FRONT_CAMERA_NAME).name == FRONT_CAMERA_NAME
     np.testing.assert_allclose(env.rescue_target_xy, [1.35, 0.30])
 
 
@@ -40,7 +41,9 @@ def test_terrain_visual_has_no_checker_grid_and_preserves_physics_contract() -> 
     assert person is not None
     assert person.find("./site[@name='downed_person_target']") is not None
     person_geoms = person.findall("./geom")
-    assert len(person_geoms) == 6
+    assert len(person_geoms) == 1
+    assert person_geoms[0].get("name") == "casualty_person"
+    assert person_geoms[0].get("type") == "mesh"
     assert all(geom.get("contype") == "0" for geom in person_geoms)
     assert all(geom.get("conaffinity") == "0" for geom in person_geoms)
 

@@ -20,6 +20,11 @@
              width="512" height="512"/>
     <material name="snow_rock" texture="snow_rock" texuniform="true" texrepeat="3 3"
               rgba="0.78 0.83 0.86 1" reflectance="0.02" roughness="0.94"/>
+    <texture name="snow_casualty_albedo" type="2d"
+             file="meshes/snow_casualty_person_albedo.png"/>
+    <material name="snow_casualty_material" texture="snow_casualty_albedo"
+              rgba="1 1 1 1" reflectance="0.01" roughness="0.88"/>
+    <mesh name="snow_casualty_person" file="snow_casualty_person.obj"/>
     <!-- The included official G1 compiler sets meshdir="meshes" globally. -->
     <hfield name="everest_compressed" file="../everest.png" size="12 12 3.0 0.10"/>
   </asset>
@@ -33,26 +38,15 @@
           material="snow_rock" friction="0.9 0.01 0.001" condim="4" priority="1"/>
     <site name="spawn_marker" pos="0 0 0.107" size="0.10 0.10 0.006" type="box"
           rgba="0.12 0.72 0.94 0.32" group="4"/>
-    <!-- Non-colliding primitive proxy matching the Isaac rescue subject. -->
-    <body name="downed_person" pos="1.35 0.30 0.106" euler="0 0 1.5707963">
+    <!-- Detailed, static, non-colliding Robot Nurse casualty. The source GLB is
+         converted to OBJ because MuJoCo does not natively load FBX/GLB. The
+         target site stays fixed so proximity and dwell semantics are unchanged. -->
+    <body name="downed_person" pos="1.35 0.30 0.106">
       <site name="downed_person_target" pos="0 0 0.18" size="0.04" type="sphere"
             rgba="0.95 0.18 0.12 0.55" group="4"/>
-      <geom name="person_torso" type="capsule" fromto="-0.31 0 0.20 0.31 0 0.20"
-            size="0.18" rgba="0.14 0.31 0.55 1" contype="0" conaffinity="0" group="3"/>
-      <geom name="person_head" type="sphere" pos="0.47 0 0.23" size="0.14"
-            rgba="0.56 0.36 0.25 1" contype="0" conaffinity="0" group="3"/>
-      <geom name="person_left_leg" type="capsule"
-            fromto="-0.81 0.11 0.16 -0.23 0.11 0.16" size="0.09"
-            rgba="0.11 0.16 0.22 1" contype="0" conaffinity="0" group="3"/>
-      <geom name="person_right_leg" type="capsule"
-            fromto="-0.81 -0.11 0.16 -0.23 -0.11 0.16" size="0.09"
-            rgba="0.11 0.16 0.22 1" contype="0" conaffinity="0" group="3"/>
-      <geom name="person_near_arm" type="capsule"
-            fromto="0.10 -0.54 0.19 0.10 -0.06 0.19" size="0.07"
-            rgba="0.83 0.35 0.12 1" contype="0" conaffinity="0" group="3"/>
-      <geom name="person_far_arm" type="capsule"
-            fromto="0.10 0.06 0.19 0.10 0.54 0.19" size="0.07"
-            rgba="0.83 0.35 0.12 1" contype="0" conaffinity="0" group="3"/>
+      <geom name="casualty_person" type="mesh" mesh="snow_casualty_person"
+            material="snow_casualty_material" pos="-0.725 0 0.16"
+            quat="0.7071068 0 0.7071068 0" contype="0" conaffinity="0"/>
     </body>
   </worldbody>
 </mujoco>

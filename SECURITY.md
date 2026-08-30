@@ -40,8 +40,8 @@ belong only on the BeaconCall server. Do not add them to this repository.
 - Enter secrets with a hidden prompt or a cloud secret manager.
 - The Bright Data remote MCP uses a credential-bearing URL internally. Errors
   intentionally discard the provider message so that URL cannot reach logs.
-- JSONL audit records contain only simulation IDs, measured distance, incident
-  ID/status, and bounded error text.
+- JSONL audit records contain only simulation IDs, measured distance, camera
+  capture byte count/status, incident ID/status, and bounded error text.
 - Rotate any token pasted into chat or another durable transcript before use.
 
 ## Cloud isolation
@@ -60,9 +60,16 @@ Do not deserialize an untrusted model. Keep checkpoint source, digest, license,
 upstream commit, and evaluation record together. The included MuJoCo TorchScript
 policy is checked against the digest documented in `THIRD_PARTY_NOTICES.md`.
 
-The committed human is a primitive proxy. Only convert and use an external FBX
-when you have the necessary rights. Generated human assets stay under ignored
-`runtime/` paths.
+The Isaac human is a primitive proxy. The committed MuJoCo casualty is a
+converted local Robot Nurse asset documented in `THIRD_PARTY_NOTICES.md`; verify
+its redistribution terms before publishing a fork. Only convert and use another
+external FBX when you have the necessary rights. Generated human assets stay
+under ignored `runtime/` paths.
+
+The armed MuJoCo path sends exactly one proximity-triggered JPEG to BeaconCall,
+which forwards it to OpenAI for an observable scene description. It does not
+send the image to LiveKit or Twilio. The vision output is untrusted quoted data,
+cannot issue robot commands, and must not be treated as a medical assessment.
 
 ## Physical robot boundary
 

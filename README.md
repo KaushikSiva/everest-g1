@@ -5,8 +5,10 @@
 Everest G1 is a simulation-first rescue vertical slice: a Unitree G1 approaches
 a motionless adult lying in snow, stops at touching distance, and—only when the
 operator explicitly arms it—asks BeaconCall to place one LiveKit/Twilio voice
-call. The call reports only observable simulation facts, waits for an
-acknowledgment, and does not diagnose the person.
+call. In MuJoCo, the one-shot trigger also captures the G1's robot-relative
+front camera. BeaconCall asks OpenAI for an observable description before the
+call, appends it to the existing report, waits for an acknowledgment, and does
+not diagnose the person.
 
 The first commissioning controller runs in NVIDIA Isaac Lab-Arena at 50 Hz with
 the G1 AGILE whole-body controller. The repository also pins NVIDIA's real
@@ -26,7 +28,7 @@ the robot simulation/control stack, not sponsor claims made by this repository.
 
 ## What works
 
-- A committed snow scene and a clearly prone, non-photorealistic adult proxy.
+- A committed snow scene, a detailed prone MuJoCo casualty, and a safe Isaac proxy.
 - Optional conversion of a legally obtained FBX to a gitignored USD.
 - A bounded approach command: 0.20 m/s forward, 0.12 m/s lateral, 0.30 rad/s yaw.
 - A 0.15 m surface-distance threshold with a continuous 0.25 s dwell.
@@ -36,6 +38,7 @@ the robot simulation/control stack, not sponsor claims made by this repository.
 - Isaac Lab-Arena on Brev for interactive work and Modal probes for headless jobs.
 - Pinned GR00T N1.7/SONIC training lane using `UNITREE_G1_SONIC`.
 - The same approach, stop, dwell, and BeaconCall flow in local MuJoCo on macOS.
+- One bounded MuJoCo G1 front-camera JPEG, captured only after an armed proximity latch.
 
 This repository does **not** claim a zero simulation-to-reality gap. It pins
 software, bounds commands, logs measurements, and separates control from cloud
@@ -51,7 +54,10 @@ Bright Data (optional, async context only)
 Isaac/MuJoCo scene -> bounded G1 policy -> proximity dwell -> robot stops
                                                      |
                                                      v one-shot worker
-                                               BeaconCall API
+                                          BeaconCall API + camera JPEG
+                                                     |
+                                                     v
+                                        OpenAI observable description
                                                      |
                                                      v
                                            LiveKit SIP -> Twilio
@@ -107,9 +113,13 @@ uv run mjpython -m summit_sentinel --mode viewer --seconds 60 \
 ```
 
 MuJoCo submits the same authenticated `/api/incidents/outbound-call` request as
-Isaac. BeaconCall—not the simulator—owns the phone number, LiveKit keys, Twilio
-SIP trunk, wording, acknowledgment wait, and hangup. Unset the arming variables
-afterward.
+Isaac, plus one 640×480 JPEG from `g1_front_camera`. BeaconCall analyzes that
+frame before dispatching LiveKit and adds the observable description to the
+existing deterministic alert. The frame is not sent to LiveKit or Twilio. If
+capture or analysis fails, the base proximity report still proceeds without
+inventing visual facts. BeaconCall—not the simulator—owns the phone number,
+OpenAI/LiveKit keys, Twilio SIP trunk, wording, acknowledgment wait, and hangup.
+Unset the arming variables afterward.
 
 ## Brev: interactive Isaac Lab-Arena
 
@@ -178,11 +188,12 @@ Lab 3.0 beta, while the released SONIC lane uses Isaac Lab 2.3.2. Dataset
 collection or a task-specific checkpoint is required before replacing the
 scripted commissioning policy. See [GR00T + SONIC](docs/GROOT_SONIC.md).
 
-## Person asset
+## Person assets
 
-The default `downed_person_proxy.usda` is made from USD primitives and can be
-redistributed. If you have an FBX with redistribution rights, convert it without
-adding the result to git:
+The MuJoCo scene uses the committed Robot Nurse casualty OBJ and albedo. The
+Isaac default `downed_person_proxy.usda` remains a conservative USD-primitives
+proxy. If you have a different FBX with redistribution rights, convert it for
+Isaac without adding the generated result to git:
 
 ```bash
 mkdir -p runtime/isaac_assets
@@ -207,14 +218,17 @@ Content-Type: application/json
 {
   "simulation_id": "opaque-run-id",
   "observed_state": "motionless_adult_in_snow",
-  "distance_m": 0.12
+  "distance_m": 0.12,
+  "camera_name": "G1-FRONT-CAMERA",
+  "image_data_url": "data:image/jpeg;base64,<one-bounded-frame>"
 }
 ```
 
 No phone number is present in the request, logs, or simulator configuration.
 BeaconCall constructs a deterministic statement that this is a simulation,
-states that responsiveness and vital signs are unknown, waits for an
-acknowledgment, and terminates the room.
+states that responsiveness and vital signs are unknown, and—when the frame is
+present—appends OpenAI's observable visual description before asking for an
+acknowledgment. It then terminates the room.
 
 ## General MuJoCo controls
 

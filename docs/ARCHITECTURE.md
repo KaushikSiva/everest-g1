@@ -12,10 +12,12 @@ Isaac/MuJoCo physics -> G1 state -> bounded approach -> proximity dwell -> zero 
 
 NETWORK PLANE (non-real-time)
 
-reached latch -> one-slot thread -> authenticated BeaconCall incident
+reached latch -> one robot-camera JPEG -> one-slot thread
+                                      -> authenticated BeaconCall incident
+                                      -> OpenAI observable description
                                       -> LiveKit dispatch
                                       -> Twilio SIP participant
-                                      -> deterministic voice acknowledgment
+                                      -> bounded voice acknowledgment
 
 Bright Data MCP -> optional public context artifact (no edge to control output)
 ```
@@ -38,14 +40,17 @@ the process never resumes motion and never queues a second call.
 
 ## Call behavior
 
-The control loop enqueues an immutable `RescueObservation` into a one-slot
-worker. HTTP, DNS, TLS, LiveKit, Twilio, speech, and acknowledgment handling all
-happen outside the robot policy. BeaconCall owns:
+At the first armed MuJoCo latch, the simulator renders one 640×480 JPEG from the
+robot-relative `g1_front_camera`, then enqueues an immutable
+`RescueObservation` into a one-slot worker. The disarmed path does not render or
+send an evidence frame. HTTP, DNS, TLS, OpenAI, LiveKit, Twilio, speech, and
+acknowledgment handling all happen outside the robot policy. BeaconCall owns:
 
 - destination number;
 - API authentication and persistent idempotency;
+- one-frame OpenAI analysis before voice dispatch;
 - LiveKit agent dispatch before SIP participant creation;
-- deterministic observable-facts-only wording;
+- deterministic base wording plus bounded observable camera context;
 - acknowledgment detection, timeout, and room deletion.
 
 ## NVIDIA lanes
@@ -63,7 +68,8 @@ Both simulation lanes use the dependency-free `ApproachLimits`,
 `ProximityLatch`, `RescueObservation`, and asynchronous `BeaconCallWorker`.
 MuJoCo reads the named `downed_person_target` site, computes the robot yaw from
 its free-joint quaternion, and replaces manual velocity input only while
-`--rescue` is active. Local joystick emergency-stop handling still runs first.
+`--rescue` is active. Its head-mounted camera is part of the MuJoCo model and
+moves with the G1. Local joystick emergency-stop handling still runs first.
 
 ## Acceptance evidence
 

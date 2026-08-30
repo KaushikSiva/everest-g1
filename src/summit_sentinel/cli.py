@@ -273,7 +273,10 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         if not args.joystick and agent_command is not None:
             effective_command = agent_command
         if rescue is not None and not env.emergency_stop_latched:
-            effective_command = rescue.update(env.data.joint("floating_base_joint").qpos.copy())
+            effective_command = rescue.update(
+                env.data.joint("floating_base_joint").qpos.copy(),
+                image_supplier=env.front_camera_jpeg if args.arm_live_call else None,
+            )
         result = env.step(effective_command)
         falls += int(result.fell)
         if result.reset and bridge_worker is not None and command_applier is not None:
@@ -355,6 +358,8 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         ),
         "live_call_armed": rescue.live_call_armed if rescue is not None else False,
         "call_submitted": rescue.call_submitted if rescue is not None else False,
+        "front_camera_status": rescue.front_camera_status if rescue is not None else "disabled",
+        "front_camera_bytes": rescue.front_camera_bytes if rescue is not None else 0,
         "simulation_id": rescue.simulation_id if rescue is not None else None,
     }
 

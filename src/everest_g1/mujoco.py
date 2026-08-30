@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +42,8 @@ class MujocoRescueController:
         self.audit_log = JsonlAuditLog(audit_log)
         self.call_worker: BeaconCallWorker | None = None
         self._disarmed_event_written = False
+        self.front_camera_status = "not_requested"
+        self.front_camera_bytes = 0
         self.last_command = NavigationCommand(0.0, 0.0, 0.0, float("inf"), False)
 
         if arm_live_call:
@@ -62,7 +65,12 @@ class MujocoRescueController:
     def call_submitted(self) -> bool:
         return self.call_worker is not None and self.call_worker.submitted
 
-    def update(self, robot_qpos: np.ndarray) -> np.ndarray:
+    def update(
+        self,
+        robot_qpos: np.ndarray,
+        *,
+        image_supplier: Callable[[], bytes] | None = None,
+    ) -> np.ndarray:
         """Return the next body-frame [forward, lateral, yaw] command."""
 
         qpos = np.asarray(robot_qpos, dtype=np.float64)
@@ -78,8 +86,32 @@ class MujocoRescueController:
         reached = self.latch.update(command.surface_distance_m, self.control_dt_s)
         self.last_command = command
         if reached:
-            facts = RescueObservation(self.simulation_id, command.surface_distance_m)
             if self.call_worker is not None:
+                image_jpeg = None
+                if not self.call_worker.submitted and image_supplier is not None:
+                    try:
+                        image_jpeg = image_supplier()
+                        self.front_camera_status = "captured"
+                        self.front_camera_bytes = len(image_jpeg)
+                        self.audit_log.write(
+                            "front_camera_captured",
+                            simulator="mujoco",
+                            simulation_id=self.simulation_id,
+                            jpeg_bytes=self.front_camera_bytes,
+                        )
+                    except Exception as error:
+                        self.front_camera_status = "capture_failed"
+                        self.audit_log.write(
+                            "front_camera_capture_failed",
+                            simulator="mujoco",
+                            simulation_id=self.simulation_id,
+                            error_type=type(error).__name__,
+                        )
+                facts = RescueObservation(
+                    self.simulation_id,
+                    command.surface_distance_m,
+                    image_jpeg=image_jpeg,
+                )
                 self.call_worker.submit_once(facts)
             elif not self._disarmed_event_written:
                 self.audit_log.write(
@@ -97,7 +129,7 @@ class MujocoRescueController:
 
     def close(self) -> None:
         if self.call_worker is not None:
-            self.call_worker.close(timeout_s=2.0)
+            self.call_worker.close(timeout_s=50.0)
 
 
 def yaw_from_wxyz(quaternion: np.ndarray) -> float:
