@@ -36,6 +36,8 @@ the robot simulation/control stack, not sponsor claims made by this repository.
 - Isaac Lab-Arena on Brev for interactive work and Modal probes for headless jobs.
 - Pinned GR00T N1.7/SONIC training lane using `UNITREE_G1_SONIC`.
 - The same approach, stop, dwell, and BeaconCall flow in local MuJoCo on macOS.
+- Optional spatial audio: a simulated microphone array steers the approach by
+  bearing, and a stereo operator cue is rendered to a WAV file.
 
 This repository does **not** claim a zero simulation-to-reality gap. It pins
 software, bounds commands, logs measurements, and separates control from cloud
@@ -110,6 +112,30 @@ MuJoCo submits the same authenticated `/api/incidents/outbound-call` request as
 Isaac. BeaconCall—not the simulator—owns the phone number, LiveKit keys, Twilio
 SIP trunk, wording, acknowledgment wait, and hangup. Unset the arming variables
 afterward.
+
+## Spatial audio for the rescue event
+
+Two optional, independent halves, both off by default:
+
+```bash
+make rescue-audio            # no GPU, no MuJoCo: renders a cue WAV
+make mujoco-rescue-audio     # the MuJoCo rescue with both halves on
+```
+
+`--acoustic-localization` simulates a four-microphone torso array and recovers
+the *bearing* of the downed person from time differences of arrival.
+`--spatial-audio` renders a stereo cue whose pan and interaural delay follow
+bearing, whose repetition rate and gain follow distance, and which plays a
+distinct tone at the proximity latch and at call submission. The track is
+written to `runtime/everest-g1-rescue-<simulation_id>.wav` at shutdown.
+
+Audio steers; it never gates. The bearing only picks a direction, while the
+distance used to build the steering target is the same measured surface
+distance that gates the stop. A wrong bearing can steer badly and can never
+stop the robot early or release a call. Rendering is buffer arithmetic with no
+audio device, so it does not stall the 50 Hz policy and runs headless.
+
+Details, mappings, and the noise model: [Spatial audio](docs/SPATIAL_AUDIO.md).
 
 ## Brev: interactive Isaac Lab-Arena
 
@@ -237,6 +263,8 @@ not replace the Isaac commissioning gate.
 - Proximity latches locally and motion becomes zero before call submission.
 - One simulator process can enqueue at most one call.
 - Audit logs omit tokens and destination numbers.
+- Spatial audio is a monitoring and steering aid only; it never gates proximity
+  or a call, and it defaults off.
 - No physical Orin/Jetson deployment is authorized by this repository.
 
 See [SECURITY.md](SECURITY.md) before enabling any external service.

@@ -58,6 +58,17 @@ def test_live_call_flag_requires_rescue_mode(capsys: pytest.CaptureFixture[str])
     assert "--arm-live-call requires --rescue" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("flag", ["--spatial-audio", "--acoustic-localization"])
+def test_spatial_audio_flags_require_rescue_mode(
+    flag: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        cli.main(["--mode", "headless", "--seconds", "0", flag])
+
+    assert error.value.code == 2
+    assert "require --rescue" in capsys.readouterr().err
+
+
 def test_estop_latency_is_zero_intervening_mocked_physics_steps() -> None:
     events: list[tuple[str, int]] = []
     env = Mock(spec=SummitSentinelEnv)

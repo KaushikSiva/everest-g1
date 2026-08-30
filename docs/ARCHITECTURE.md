@@ -36,6 +36,28 @@ It commands zero velocity at 0.15 m or less, then requires the condition for 0.2
 continuous seconds. A transient threshold crossing resets dwell. Once latched,
 the process never resumes motion and never queues a second call.
 
+## Spatial audio authority
+
+Optional acoustic localization and the optional stereo operator cue sit beside
+the control loop, never inside the gate:
+
+```text
+microphone array -> bearing ------+
+                                  v
+measured surface distance -> steering target -> bounded velocity command
+        |
+        +-> proximity dwell -> stop -> one-slot call worker
+```
+
+A bearing is a noisy estimate and only ever selects a direction. The range used
+to build the steering target is the same measured surface distance from the
+rule above, so a wrong bearing can steer badly and can never satisfy the
+threshold, shorten the dwell, or release a call. The level-based range the array
+reports is telemetry only. The cue is rendered into a bounded buffer and written
+once at shutdown, so it never performs I/O inside the policy step.
+
+Full mapping and noise model: [Spatial audio](SPATIAL_AUDIO.md).
+
 ## Call behavior
 
 The control loop enqueues an immutable `RescueObservation` into a one-slot

@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from everest_g1.mujoco import MujocoRescueController
+from everest_g1.spatial_audio import SpatialAudioSettings
 from summit_sentinel.agent_runtime import (
     BridgeRuntimeWorker,
     RuntimeCommandApplier,
@@ -87,6 +88,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("runtime/everest-g1-events.jsonl"),
         help="redacted rescue event JSONL",
+    )
+    parser.add_argument(
+        "--spatial-audio",
+        action="store_true",
+        help="render a stereo operator cue for the rescue event to a WAV file",
+    )
+    parser.add_argument(
+        "--spatial-audio-out",
+        type=Path,
+        default=Path("runtime/everest-g1-rescue.wav"),
+        help="stereo cue destination; the simulation id is appended to the stem",
+    )
+    parser.add_argument(
+        "--acoustic-localization",
+        action="store_true",
+        help="steer the approach from a simulated torso microphone array",
     )
     parser.add_argument("--no-policy", action="store_true", help="use stationary PD hold fallback")
     parser.add_argument("--no-auto-reset", action="store_true")
@@ -234,6 +251,11 @@ def _run_with_source(args, config, source) -> dict[str, object]:
             arm_live_call=args.arm_live_call,
             simulation_id=args.simulation_id or "",
             audit_log=args.audit_log,
+            spatial_audio=SpatialAudioSettings(
+                acoustic_localization=args.acoustic_localization,
+                render_cue=args.spatial_audio,
+                output_path=args.spatial_audio_out,
+            ),
         )
         if args.rescue
         else None
@@ -356,6 +378,14 @@ def _run_with_source(args, config, source) -> dict[str, object]:
         "live_call_armed": rescue.live_call_armed if rescue is not None else False,
         "call_submitted": rescue.call_submitted if rescue is not None else False,
         "simulation_id": rescue.simulation_id if rescue is not None else None,
+        "acoustic_localization": rescue is not None
+        and rescue.audio is not None
+        and rescue.audio.sensor is not None,
+        "spatial_audio_path": (
+            str(rescue.spatial_audio_path)
+            if rescue is not None and rescue.spatial_audio_path is not None
+            else None
+        ),
     }
 
 
@@ -369,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--telemetry-hz must be between 10 and 20")
     if args.arm_live_call and not args.rescue:
         parser.error("--arm-live-call requires --rescue")
+    if (args.spatial_audio or args.acoustic_localization) and not args.rescue:
+        parser.error("--spatial-audio and --acoustic-localization require --rescue")
     if args.list_joysticks:
         devices = list_joysticks()
         if not devices:

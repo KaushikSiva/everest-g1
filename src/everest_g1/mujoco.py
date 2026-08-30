@@ -14,7 +14,14 @@ from everest_g1.beacon import (
     new_simulation_id,
 )
 from everest_g1.models import NavigationCommand, RescueObservation
-from everest_g1.rescue import ApproachLimits, ProximityLatch, approach_person
+from everest_g1.rescue import (
+    ApproachLimits,
+    ProximityLatch,
+    approach_person,
+    body_bearing,
+    target_from_bearing,
+)
+from everest_g1.spatial_audio import RescueAudio, SpatialAudioSettings
 
 
 class MujocoRescueController:
@@ -30,6 +37,7 @@ class MujocoRescueController:
         audit_log: Path = Path("runtime/everest-g1-events.jsonl"),
         limits: ApproachLimits | None = None,
         dwell_s: float = 0.25,
+        spatial_audio: SpatialAudioSettings | None = None,
     ) -> None:
         if control_dt_s <= 0:
             raise ValueError("control_dt_s must be positive")
@@ -41,7 +49,10 @@ class MujocoRescueController:
         self.audit_log = JsonlAuditLog(audit_log)
         self.call_worker: BeaconCallWorker | None = None
         self._disarmed_event_written = False
+        self._latch_cued = False
         self.last_command = NavigationCommand(0.0, 0.0, 0.0, float("inf"), False)
+        audio_settings = spatial_audio or SpatialAudioSettings()
+        self.audio = RescueAudio(audio_settings) if audio_settings.enabled else None
 
         if arm_live_call:
             settings = BeaconSettings.from_env(arm_requested=True)
@@ -53,6 +64,14 @@ class MujocoRescueController:
             simulation_id=self.simulation_id,
             live_call_armed=self.call_worker is not None,
         )
+        if self.audio is not None:
+            self.audit_log.write(
+                "spatial_audio_started",
+                simulator="mujoco",
+                simulation_id=self.simulation_id,
+                acoustic_localization=self.audio.sensor is not None,
+                cue_rendered=self.audio.renderer is not None,
+            )
 
     @property
     def live_call_armed(self) -> bool:
@@ -68,19 +87,66 @@ class MujocoRescueController:
         qpos = np.asarray(robot_qpos, dtype=np.float64)
         if qpos.shape != (7,) or not np.all(np.isfinite(qpos)):
             raise ValueError("MuJoCo rescue root pose must contain seven finite values")
-        command = approach_person(
-            robot_xy=(float(qpos[0]), float(qpos[1])),
-            robot_yaw_rad=yaw_from_wxyz(qpos[3:7]),
+        robot_xy = (float(qpos[0]), float(qpos[1]))
+        robot_yaw = yaw_from_wxyz(qpos[3:7])
+
+        # The onboard range gate always uses the observed geometry. Audio may
+        # steer, but it may never decide that the robot is close enough to stop
+        # or to hand the incident to BeaconCall.
+        gate = approach_person(
+            robot_xy=robot_xy,
+            robot_yaw_rad=robot_yaw,
             person_xy=self.person_xy,
             limits=self.limits,
             reached=self.latch.latched,
         )
+        drive = gate
+        target_xy = self.person_xy
+        if self.audio is not None and not gate.reached:
+            estimate = self.audio.observe(
+                robot_xy=robot_xy, robot_yaw_rad=robot_yaw, source_xy=self.person_xy
+            )
+            if estimate is not None:
+                target_xy = target_from_bearing(
+                    robot_xy=robot_xy,
+                    robot_yaw_rad=robot_yaw,
+                    bearing_rad=estimate.bearing_rad,
+                    surface_distance_m=gate.surface_distance_m,
+                    limits=self.limits,
+                )
+                drive = approach_person(
+                    robot_xy=robot_xy,
+                    robot_yaw_rad=robot_yaw,
+                    person_xy=target_xy,
+                    limits=self.limits,
+                )
+        command = NavigationCommand(
+            forward_mps=drive.forward_mps,
+            lateral_mps=drive.lateral_mps,
+            yaw_rps=drive.yaw_rps,
+            surface_distance_m=gate.surface_distance_m,
+            reached=gate.reached,
+        )
         reached = self.latch.update(command.surface_distance_m, self.control_dt_s)
         self.last_command = command
+
+        if self.audio is not None:
+            self.audio.cue(
+                dt_s=self.control_dt_s,
+                bearing_rad=body_bearing(
+                    robot_xy=robot_xy, robot_yaw_rad=robot_yaw, target_xy=target_xy
+                ),
+                distance_m=command.surface_distance_m,
+            )
         if reached:
+            if not self._latch_cued:
+                self._latch_cued = True
+                if self.audio is not None:
+                    self.audio.mark_proximity_latched()
             facts = RescueObservation(self.simulation_id, command.surface_distance_m)
             if self.call_worker is not None:
-                self.call_worker.submit_once(facts)
+                if self.call_worker.submit_once(facts) and self.audio is not None:
+                    self.audio.mark_call_submitted()
             elif not self._disarmed_event_written:
                 self.audit_log.write(
                     "proximity_reached_call_disarmed",
@@ -95,9 +161,24 @@ class MujocoRescueController:
             dtype=np.float32,
         )
 
+    @property
+    def spatial_audio_path(self) -> Path | None:
+        if self.audio is None or self.audio.renderer is None:
+            return None
+        return self.audio.settings.path_for(self.simulation_id)
+
     def close(self) -> None:
         if self.call_worker is not None:
             self.call_worker.close(timeout_s=2.0)
+        if self.audio is not None:
+            summary = self.audio.close(self.simulation_id)
+            if summary is not None:
+                self.audit_log.write(
+                    "spatial_audio_written",
+                    simulator="mujoco",
+                    simulation_id=self.simulation_id,
+                    **summary,
+                )
 
 
 def yaw_from_wxyz(quaternion: np.ndarray) -> float:
