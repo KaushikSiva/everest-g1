@@ -6,10 +6,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_cloud_scripts_parse_as_bash() -> None:
-    scripts = sorted((ROOT / "cloud").glob("*.sh"))
+    scripts = [
+        *sorted((ROOT / "cloud").glob("*.sh")),
+        *sorted((ROOT / "stacks").glob("*/*.sh")),
+    ]
     assert scripts
     for script in scripts:
         subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+def test_three_isolated_stack_entrypoints_and_isaac_camera_flag_exist() -> None:
+    assert {path.name for path in (ROOT / "stacks").iterdir() if path.is_dir()} == {
+        "groot",
+        "isaac_lab",
+        "sonic",
+    }
+    isaac_wrapper = (ROOT / "cloud/run_brev_rescue.sh").read_text()
+    policy = (ROOT / "src/everest_g1/isaac/policy.py").read_text()
+
+    assert "--enable_cameras" in isaac_wrapper
+    assert "isaac_front_camera_jpeg(observation)" in policy
+    assert 'simulator="isaac_lab"' in policy
 
 
 def test_upstream_pins_are_full_commit_shas() -> None:

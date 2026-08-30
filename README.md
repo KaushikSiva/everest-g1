@@ -16,6 +16,16 @@ GR00T N1.7 + GEAR-SONIC workflow for dataset collection, fine-tuning, and later
 whole-body policy evaluation. Those are distinct controllers and are never
 presented as interchangeable.
 
+> **Start here:** [Isaac Lab + GR00T + SONIC: one setup path](docs/ISAAC_LAB_GROOT_SONIC.md)
+
+The repository keeps each NVIDIA lane in a separate integration folder:
+
+| Folder | Purpose |
+| --- | --- |
+| [`stacks/isaac_lab`](stacks/isaac_lab/) | Runnable rescue, G1 head camera, and BeaconCall handoff |
+| [`stacks/groot`](stacks/groot/) | GR00T N1.7 data, fine-tuning, and inference environment |
+| [`stacks/sonic`](stacks/sonic/) | GEAR-SONIC 50 Hz whole-body controller environments |
+
 ## Sponsors
 
 | Sponsor | Integration |
@@ -128,26 +138,27 @@ repository on the instance, then:
 
 ```bash
 cd everest-g1
-./cloud/brev_setup.sh
-./cloud/run_brev_rescue.sh
+make isaac-setup
+make isaac-run
 ```
 
 The first command installs the pinned Arena environment at
 `/home/ubuntu/workspace/everest-g1-cloud/IsaacLab-Arena`. The second opens the
-viewer and runs a 60-second, disarmed rollout.
+viewer, enables the G1's built-in 640×480 head camera, and runs a 60-second,
+disarmed rollout.
 
 Only after BeaconCall is running and a disarmed rollout succeeds:
 
 ```bash
 export BEACON_API_URL=https://YOUR-BEACON-HOST
 read -rsp 'Beacon API token: ' BEACON_API_TOKEN; export BEACON_API_TOKEN; echo
-./cloud/run_brev_rescue.sh --arm-live-call
+./stacks/isaac_lab/run.sh --arm-live-call
 ```
 
 The script then requires the exact typed phrase `ARM-LIVE-CALL`. It never asks
 for or stores the destination phone number.
 
-Full instructions: [Cloud runbook](docs/CLOUD_RUNBOOK.md).
+Full instructions: [Isaac Lab + GR00T + SONIC runbook](docs/ISAAC_LAB_GROOT_SONIC.md).
 
 ## Modal: headless probe and evaluation
 

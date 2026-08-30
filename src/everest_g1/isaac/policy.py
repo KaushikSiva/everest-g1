@@ -19,6 +19,7 @@ from everest_g1.beacon import (
     JsonlAuditLog,
     new_simulation_id,
 )
+from everest_g1.isaac.camera import isaac_front_camera_jpeg
 from everest_g1.models import RescueObservation
 from everest_g1.rescue import ApproachLimits, ProximityLatch, approach_person
 
@@ -62,6 +63,8 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
         self.audit_log = JsonlAuditLog(Path(config.audit_log))
         self.call_worker: BeaconCallWorker | None = None
         self._disarmed_event_written = False
+        self.front_camera_status = "not_requested"
+        self.front_camera_bytes = 0
         if config.arm_live_call:
             settings = BeaconSettings.from_env(arm_requested=True)
             settings.validate()
@@ -69,12 +72,12 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
             atexit.register(self.close)
         self.audit_log.write(
             "simulation_started",
+            simulator="isaac_lab",
             simulation_id=self.simulation_id,
             live_call_armed=self.call_worker is not None,
         )
 
     def get_action(self, env: gym.Env, observation: GymSpacesDict) -> torch.Tensor:
-        del observation
         if env.action_space.shape[0] != 1:
             raise RuntimeError("everest_approach currently requires --num_envs 1")
 
@@ -108,9 +111,30 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
 
         if reached:
             action[:, -7:-4] = 0.0
+            image_jpeg = None
+            if self.call_worker is not None and not self.call_worker.submitted:
+                try:
+                    image_jpeg = isaac_front_camera_jpeg(observation)
+                    self.front_camera_status = "captured"
+                    self.front_camera_bytes = len(image_jpeg)
+                    self.audit_log.write(
+                        "front_camera_captured",
+                        simulator="isaac_lab",
+                        simulation_id=self.simulation_id,
+                        jpeg_bytes=self.front_camera_bytes,
+                    )
+                except Exception as error:
+                    self.front_camera_status = "capture_failed"
+                    self.audit_log.write(
+                        "front_camera_capture_failed",
+                        simulator="isaac_lab",
+                        simulation_id=self.simulation_id,
+                        error_type=type(error).__name__,
+                    )
             observation_facts = RescueObservation(
                 simulation_id=self.simulation_id,
                 distance_m=command.surface_distance_m,
+                image_jpeg=image_jpeg,
             )
             if self.call_worker is not None:
                 self.call_worker.submit_once(observation_facts)
@@ -130,7 +154,7 @@ class EverestApproachPolicy(PolicyBase[EverestApproachPolicyCfg]):
 
     def close(self) -> None:
         if self.call_worker is not None:
-            self.call_worker.close(timeout_s=2.0)
+            self.call_worker.close(timeout_s=50.0)
 
 
 def _yaw_from_wxyz(quaternion: torch.Tensor) -> float:

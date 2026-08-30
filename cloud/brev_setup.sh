@@ -46,8 +46,9 @@ fi
 (
   cd "${arena_dir}"
   uv sync --no-default-groups --group isaaclab-from-wheel --group gr00t-client
+  uv pip install --python .venv/bin/python "Pillow==12.3.0"
   uv pip install --python .venv/bin/python --no-deps --editable "${repo_root}"
-  .venv/bin/python -c "import isaaclab, isaaclab_arena, everest_g1; print('Isaac/Arena/Everest imports OK')"
+  .venv/bin/python -c "import isaaclab, isaaclab_arena, everest_g1; from PIL import Image; print('Isaac/Arena/Everest/camera imports OK')"
 )
 
 echo "BREV SETUP COMPLETE: ${arena_dir}"

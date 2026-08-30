@@ -1,5 +1,9 @@
 # Cloud runbook
 
+For the simplified three-folder entrypoints and camera-grounded call flow, use
+[`ISAAC_LAB_GROOT_SONIC.md`](ISAAC_LAB_GROOT_SONIC.md). This document retains
+the lower-level cloud details.
+
 ## 1. Brev commissioning
 
 Provision Ubuntu x86_64 with an NVIDIA GPU, persistent disk, and enough space
@@ -20,6 +24,9 @@ Run disarmed first:
 ```bash
 ./cloud/run_brev_rescue.sh
 ```
+
+The wrapper enables Arena's G1 head camera automatically. The disarmed run does
+not encode, upload, or call with a frame.
 
 Acceptance:
 

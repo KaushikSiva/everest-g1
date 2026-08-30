@@ -33,6 +33,7 @@ export ACCEPT_EULA=Y
 cd "${arena_dir}"
 exec .venv/bin/python -m everest_g1.isaac.run \
   --viz kit \
+  --enable_cameras \
   --policy_type everest_approach \
   --num_envs 1 \
   --num_steps 3000 \

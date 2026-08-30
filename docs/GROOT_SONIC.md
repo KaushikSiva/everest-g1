@@ -1,5 +1,10 @@
 # GR00T N1.7 + GEAR-SONIC lane
 
+Use the separate in-repository entrypoints in [`stacks/groot`](../stacks/groot/)
+and [`stacks/sonic`](../stacks/sonic/). The complete setup sequence, including
+the runnable Isaac Lab camera path, is in
+[`ISAAC_LAB_GROOT_SONIC.md`](ISAAC_LAB_GROOT_SONIC.md).
+
 This is the real NVIDIA whole-body path, not a rename of the Arena commissioning
 controller. GR00T predicts a 40-step chunk of 64-dimensional SONIC latent motion
 tokens plus hand actions; SONIC decodes body motion at 50 Hz.

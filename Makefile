@@ -1,4 +1,4 @@
-.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mcp rescue-dry brev-setup brev-run verify
+.PHONY: setup sim sim-macos sim-linux sim-headless mujoco-rescue mujoco-rescue-headless mcp rescue-dry brev-setup brev-run isaac-setup isaac-run groot-setup sonic-setup verify
 
 SIM_LAUNCHER := $(if $(filter Darwin,$(shell uname -s)),mjpython,python)
 
@@ -34,6 +34,18 @@ brev-setup:
 
 brev-run:
 	./cloud/run_brev_rescue.sh
+
+isaac-setup:
+	./stacks/isaac_lab/setup.sh
+
+isaac-run:
+	./stacks/isaac_lab/run.sh
+
+groot-setup:
+	./stacks/groot/setup.sh
+
+sonic-setup:
+	./stacks/sonic/setup.sh
 
 verify:
 	uv run ruff check .
