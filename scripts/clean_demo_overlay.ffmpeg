@@ -1,0 +1,23 @@
+[0:v]
+drawbox=x=0:y=0:w=iw:h=104:color=0x03101C:t=fill,
+drawbox=x=0:y=610:w=iw:h=110:color=0x03101C:t=fill,
+drawbox=x=38:y=28:w=10:h=54:color=0x4AD7D1:t=fill,
+drawbox=x=900:y=10:w=355:h=84:color=0x03101C:t=fill,
+drawbox=x=900:y=10:w=6:h=84:color=0x4AD7D1:t=fill,
+drawtext=fontfile=/System/Library/Fonts/SFNS.ttf:text='EVEREST G1 / SUMMIT REHEARSAL':expansion=none:fontcolor=white:fontsize=35:x=66:y=30:enable='between(t,0,21.440)',
+drawtext=fontfile=/System/Library/Fonts/SFNS.ttf:text='SAFETY AUTHORITY TEST':expansion=none:fontcolor=white:fontsize=35:x=66:y=30:enable='between(t,21.440,43.700)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='EVEREST SUMMIT / 8848 m':expansion=none:fontcolor=white:fontsize=18:x=920:y=17,
+drawtext=fontfile=/System/Library/Fonts/SFNS.ttf:text='-21.1 C':expansion=none:fontcolor=0x4AD7D1:fontsize=31:x=920:y=42,
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='PUBLIC FORECAST':expansion=none:fontcolor=0xD7E3EE:fontsize=13:x=1040:y=55,
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='BALANCE CHECK':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,0,3.430)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='FORWARD TRAVERSE':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,3.430,9.005)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='LATERAL TRAVERSE':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,9.005,13.507)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='TURNING TEST':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,13.507,17.581)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='COMBINED MOVEMENT':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,17.581,21.440)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='MOVING / LOCAL OPERATOR AUTHORITY':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,21.440,26.544)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='LOCAL STOP / TORQUE = 0 / TIME FROZEN':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,26.544,31.648)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='REMOTE RESET REJECTED / LOCAL LATCH REMAINS':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,31.648,34.754)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='LOCAL RESET ACKNOWLEDGED':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,34.754,37.417)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='LOCAL RESUME / MOTION RESTORED':expansion=none:fontcolor=white:fontsize=24:x=46:y=628:enable='between(t,37.417,43.700)',
+drawtext=fontfile=/System/Library/Fonts/SFNSMono.ttf:text='EVEREST G1 / 500 HZ PHYSICS / 50 HZ POLICY':expansion=none:fontcolor=0x4AD7D1:fontsize=17:x=46:y=674
+[vout]

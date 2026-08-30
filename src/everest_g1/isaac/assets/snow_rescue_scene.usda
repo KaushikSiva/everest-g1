@@ -1,0 +1,44 @@
+#usda 1.0
+(
+    defaultPrim = "EverestRescue"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "EverestRescue"
+{
+    def Cube "SnowField" (
+        prepend apiSchemas = ["PhysicsCollisionAPI"]
+    )
+    {
+        uniform bool physics:collisionEnabled = 1
+        color3f[] primvars:displayColor = [(0.83, 0.90, 0.96)]
+        double3 xformOp:scale = (6, 6, 0.1)
+        double3 xformOp:translate = (2, 0, -0.1)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+    }
+
+    def Cone "DistantPeakLeft"
+    {
+        double height = 5
+        double radius = 3
+        color3f[] primvars:displayColor = [(0.44, 0.52, 0.61)]
+        double3 xformOp:translate = (7, 5, 2.3)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Cone "DistantPeakRight"
+    {
+        double height = 6
+        double radius = 3.5
+        color3f[] primvars:displayColor = [(0.38, 0.46, 0.56)]
+        double3 xformOp:translate = (8, -5, 2.8)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def DomeLight "SkyLight"
+    {
+        float inputs:intensity = 900
+        color3f inputs:color = (0.72, 0.82, 1.0)
+    }
+}

@@ -1,0 +1,67 @@
+#usda 1.0
+(
+    defaultPrim = "DownedPerson"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "DownedPerson"
+{
+    def Capsule "Torso"
+    {
+        double height = 0.62
+        double radius = 0.18
+        token axis = "X"
+        color3f[] primvars:displayColor = [(0.14, 0.31, 0.55)]
+        double3 xformOp:translate = (0, 0, 0.24)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Sphere "Head"
+    {
+        double radius = 0.14
+        color3f[] primvars:displayColor = [(0.56, 0.36, 0.25)]
+        double3 xformOp:translate = (0.47, 0, 0.23)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Capsule "LeftLeg"
+    {
+        double height = 0.58
+        double radius = 0.09
+        token axis = "X"
+        color3f[] primvars:displayColor = [(0.11, 0.16, 0.22)]
+        double3 xformOp:translate = (-0.52, 0.11, 0.16)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Capsule "RightLeg"
+    {
+        double height = 0.58
+        double radius = 0.09
+        token axis = "X"
+        color3f[] primvars:displayColor = [(0.11, 0.16, 0.22)]
+        double3 xformOp:translate = (-0.52, -0.11, 0.16)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Capsule "NearArm"
+    {
+        double height = 0.48
+        double radius = 0.07
+        token axis = "Y"
+        color3f[] primvars:displayColor = [(0.83, 0.35, 0.12)]
+        double3 xformOp:translate = (0.1, -0.30, 0.19)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Capsule "FarArm"
+    {
+        double height = 0.48
+        double radius = 0.07
+        token axis = "Y"
+        color3f[] primvars:displayColor = [(0.83, 0.35, 0.12)]
+        double3 xformOp:translate = (0.1, 0.30, 0.19)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}

@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "everest-g1"
+version = "0.3.0"
+description = "Isaac Lab rescue simulation for a Unitree G1 with a guarded LiveKit voice handoff"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+license-files = [
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+  "docs/third_party/UNITREE_RL_GYM_LICENSE.txt",
+]
+authors = [{ name = "Everest G1 contributors" }]
+keywords = ["isaac-lab", "mujoco", "robotics", "unitree-g1", "livekit"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "mcp==2.1.1",
+  "mujoco>=3.3.7,<4",
+  "numpy>=1.26.4,<3",
+  "pygame-ce==2.5.5",
+  "PyYAML==6.0.2",
+  "torch==2.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "hatchling==1.27.0",
+  "pytest==9.1.1",
+  "ruff==0.12.10",
+]
+
+[project.scripts]
+everest-g1 = "everest_g1.cli:main"
+summit-sentinel = "summit_sentinel.cli:main"
+summit-sentinel-mcp = "summit_sentinel.mcp_server:main"
+summit-sentinel-replay = "summit_sentinel.replay:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/everest_g1", "src/summit_sentinel"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["docs/third_party"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --import-mode=importlib"
+testpaths = ["tests"]
